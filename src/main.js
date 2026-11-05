@@ -360,8 +360,9 @@ function loadMeta(){
     mm.specs = { unlock:{}, equipped:null };
     for(const k of Object.keys(SPEC_DEFS)) mm.specs.unlock[k] = !!(sp.unlock && sp.unlock[k]===true);
     if(typeof sp.equipped==='string' && SPEC_DEFS[sp.equipped] && mm.specs.unlock[sp.equipped]) mm.specs.equipped = sp.equipped;
+    mm.mastery = (mm.mastery && typeof mm.mastery==='object' && !Array.isArray(mm.mastery)) ? mm.mastery : {};
     return mm;
-  }catch(e){ return { v:1, gems:0, upg:zeroUpg(), lastAward:null, specs:{ unlock:{breakthrough:false,guardian:false,fortune:false}, equipped:null } }; }
+  }catch(e){ return { v:1, gems:0, upg:zeroUpg(), lastAward:null, specs:{ unlock:{breakthrough:false,guardian:false,fortune:false}, equipped:null }, mastery:{} }; }
 }
 const META = loadMeta();
 function saveMeta(){ try{ localStorage.setItem(META_KEY, JSON.stringify(META)); }catch(e){} }
@@ -1011,6 +1012,7 @@ function showRecords(){
   $('records').innerHTML = r.games>0
     ? `최고 기록: <b>웨이브 ${r.best}</b> · 총 ${r.games}게임` + Object.entries(r.per).map(([k,v])=>`<br>${PERSONALITIES[k]?.name||k}: 웨이브 ${v}`).join('')
       + (r.ch && Object.keys(r.ch).length ? '<br><span style="color:#ff8a5c">도전 의식:</span>' + Object.entries(r.ch).map(([k,v])=>`<br>&nbsp;${CHALLENGES[k]?.icon||''} ${CHALLENGES[k]?.name||k}: 웨이브 ${v}`).join('') : '')
+      + (META.mastery && Object.keys(META.mastery).length ? '<br><span style="color:#7dd3fc">의식 마스터리:</span> ' + Object.entries(META.mastery).map(([k,v])=> k==='trio' ? (v===true?'삼중 의식 🏅':'') : `${CHALLENGES[k]?.name||k} ${(Array.isArray(v)?v:[]).map(m=>m===8?'Ⅰ':m===12?'Ⅱ':'Ⅲ').join('')}`).filter(s=>s.length).join(' · ') : '')
     : '아직 기록이 없습니다. 첫 게임을 시작해 보세요!';
 }
 
@@ -1084,22 +1086,35 @@ function gameOver(){
   if(overFired) return; overFired = true;
   G.phase='over';
   const gemsEarned = Math.round((Math.max(0, G.wave-1) + 2*(G.bossKills||0)) * (1 + 0.25*(G.ch?G.ch.length:0)));
+  // 의식 마스터리: 의식별 웨이브 8/12/16 최초 달성 시 영구 배지 + 1회성 젬 보너스 (머지 멱등)
+  const newBadges = [];
+  if(G.ch && G.ch.length){
+    META.mastery = META.mastery || {};
+    for(const k of G.ch){
+      if(!CHALLENGES[k]) continue;
+      META.mastery[k] = Array.isArray(META.mastery[k]) ? META.mastery[k] : [];
+      for(const m of [8,12,16]) if(G.wave>=m && !META.mastery[k].includes(m)){ META.mastery[k].push(m); newBadges.push([k,m]); }
+    }
+    if(G.ch.length>=3 && G.wave>=12 && META.mastery.trio!==true){ META.mastery.trio = true; newBadges.push(['trio',12]); }
+  }
+  const badgeBonus = newBadges.reduce((s,b)=> s + (b[0]==='trio'?30:(b[1]===8?5:b[1]===12?10:15)), 0);
+  const gemsTotal = gemsEarned + badgeBonus;
   const runId = G.runId || newRunId();
   // 1) 저널 먼저: 이후 어디서 중단돼도 부팅 시 정확히 한 번 지급
-  try{ localStorage.setItem(AWARD_KEY, JSON.stringify({ runId, gems: gemsEarned })); }catch(e){}
+  try{ localStorage.setItem(AWARD_KEY, JSON.stringify({ runId, gems: gemsTotal })); }catch(e){}
   clearRun();
   const prevBest = (G.bestAtStart != null) ? G.bestAtStart : 0;
   const r = loadRecords(); r.games++; localStorage.setItem('fd_records_v1', JSON.stringify(r));
   saveRecords();
   // 2) 실제 지급 + 지급 완료 표시 (같은 runId 재지급 불가)
-  if(META.lastAward !== runId){ META.gems += gemsEarned; META.lastAward = runId; saveMeta(); }
+  if(META.lastAward !== runId){ META.gems += gemsTotal; META.lastAward = runId; saveMeta(); }
   try{ localStorage.removeItem(AWARD_KEY); }catch(e){}
   AudioMan.play('defeat', 0.9); AudioMan.bgmStop();
   $('over-title').textContent = '성문이 함락됐습니다';
   $('over-sub').textContent = `${PERSONALITIES[G.persKey].name}와 함께 웨이브 ${G.wave}까지 방어`;
   const aiS = G.sides[1];
   if(AI.alive) aiSay('end');
-  $('over-stats').innerHTML = `<div>도달 웨이브<b>${G.wave}</b></div><div>처치 수<b>${G.kills}</b></div><div>총 피해량<b>${Math.round(G.dmgDealt||0).toLocaleString()}</b></div><div>획득 골드<b>${G.goldEarned}</b></div><div>AI 최종 유닛<b>${aiS.units.length}기</b></div><div>최고 기록<b>${loadRecords().best}</b></div>${G.ch&&G.ch.length?`<div>도전 의식<b>${G.ch.map(k=>CHALLENGES[k].name).join('·')}</b></div>`:''}<div>획득 젬<b>+${gemsEarned} 💎</b></div><div>보유 젬<b>${META.gems}</b></div>`;
+  $('over-stats').innerHTML = `<div>도달 웨이브<b>${G.wave}</b></div><div>처치 수<b>${G.kills}</b></div><div>총 피해량<b>${Math.round(G.dmgDealt||0).toLocaleString()}</b></div><div>획득 골드<b>${G.goldEarned}</b></div><div>AI 최종 유닛<b>${aiS.units.length}기</b></div><div>최고 기록<b>${loadRecords().best}</b></div>${G.ch&&G.ch.length?`<div>도전 의식<b>${G.ch.map(k=>CHALLENGES[k].name).join('·')}</b></div>`:''}<div>획득 젬<b>+${gemsTotal} 💎</b></div>${newBadges.length?`<div>새 배지<b>${newBadges.map(([k,m])=>k==='trio'?'삼중 의식 🏅':CHALLENGES[k].name+' '+(m===8?'Ⅰ':m===12?'Ⅱ':'Ⅲ')).join(' · ')}</b></div>`:''}<div>보유 젬<b>${META.gems}</b></div>`;
   if(G.leakLog.length){
     const byZ = {};
     for(const l of G.leakLog){ const nm = (ZONE_TRAVEL.find(([zz])=>zz===l.z)||[])[1] || ('구역'+(l.z+1)); byZ[nm] = (byZ[nm]||0)+1; }
