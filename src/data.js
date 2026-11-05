@@ -69,6 +69,13 @@ export function waveSpec(n){
     killGold: 1 + Math.floor(n/5), clearBonus: 12 + n*3 };
 }
 
+// 도전 의식: 선택형 자체 제약 — 기록은 별도 저장, 판당 활성 1개당 젬 +25%
+export const CHALLENGES = {
+  iron:   { icon:'🛡', name:'강철 군단', desc:'적 체력 +30%' },
+  drought:{ icon:'🏜', name:'가뭄',     desc:'소환 비용 +50%' },
+  blitz:  { icon:'💨', name:'질주',     desc:'적 이동 속도 +25%' },
+};
+
 // AI 성격 6종
 export const PERSONALITIES = {
   random:  { icon:'?', name:'랜덤', desc:'어떤 동료가 올까요?' },
