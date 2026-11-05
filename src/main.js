@@ -385,6 +385,11 @@ function chooseTile(side, def, prefRow){
     if(!front.length) return -1;
     const dz = pickPriorityZones(side);
     if(dz.size){ const cover = front.filter(i => dz.has(zoneOfTile(side, i % TILE_SECTORS))); if(cover.length) front = cover; }
+    // 합성 장인 AI: 같은 유닛 재료가 있는 구역 우선
+    if(side>0 && G.persKey==='merger'){
+      const sameSecs = new Set(G.sides[1].units.filter(u=>u.def.id===def.id).map(u=>u.sector));
+      if(sameSecs.size){ const same = front.filter(i => sameSecs.has(i % TILE_SECTORS)); if(same.length) front = same; }
+    }
     const empt = front.filter(emptySector);
     return pick(empt.length ? empt : front);
   }
