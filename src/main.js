@@ -343,6 +343,12 @@ const UPG_DEFS = {
   econ: { name:'킬 골드', desc:'처치 골드 +5%', max:5 },
 };
 const UPG_COST = l => [5,8,12,17,23][l] ?? 0;
+// ---------- 특화: 판마다 1개 장착하는 영구 개방 선택지 ----------
+const SPEC_DEFS = {
+  breakthrough: { name:'돌파 특화', desc:'합성으로 만든 유닛 피해 +10%', cost:40 },
+  guardian:     { name:'수호 특화', desc:'매 판 첫 침투 3회 생명 무손실 (보스 제외)', cost:40 },
+  fortune:      { name:'행운 특화', desc:'양쪽 첫 행운 소환 무료 + 상위 등급 확률 상승', cost:40 },
+};
 function zeroUpg(){ return { gold:0, lives:0, dmg:0, econ:0 }; }
 function loadMeta(){
   try{
@@ -350,8 +356,12 @@ function loadMeta(){
     if(!mm || mm.v!==1 || typeof mm.gems!=='number' || !(mm.gems>=0) || !mm.upg) throw 0;
     for(const k of Object.keys(UPG_DEFS)){ const v = mm.upg[k]; mm.upg[k] = Number.isInteger(v) ? Math.min(Math.max(v,0), UPG_DEFS[k].max) : 0; }
     mm.lastAward = typeof mm.lastAward==='string' ? mm.lastAward : null;
+    const sp = (mm.specs && typeof mm.specs==='object') ? mm.specs : {};
+    mm.specs = { unlock:{}, equipped:null };
+    for(const k of Object.keys(SPEC_DEFS)) mm.specs.unlock[k] = !!(sp.unlock && sp.unlock[k]===true);
+    if(typeof sp.equipped==='string' && SPEC_DEFS[sp.equipped] && mm.specs.unlock[sp.equipped]) mm.specs.equipped = sp.equipped;
     return mm;
-  }catch(e){ return { v:1, gems:0, upg:zeroUpg(), lastAward:null }; }
+  }catch(e){ return { v:1, gems:0, upg:zeroUpg(), lastAward:null, specs:{ unlock:{breakthrough:false,guardian:false,fortune:false}, equipped:null } }; }
 }
 const META = loadMeta();
 function saveMeta(){ try{ localStorage.setItem(META_KEY, JSON.stringify(META)); }catch(e){} }
@@ -379,8 +389,29 @@ function renderMetaShop(){
     const lv = META.upg[k], maxed = lv>=d.max, cost = maxed?0:UPG_COST(lv);
     html += `<div class="upg-row"><div class="upg-info"><b>${d.name}</b> <span class="pips">${'●'.repeat(lv)}${'○'.repeat(d.max-lv)}</span><br><span class="upg-desc">${d.desc}</span></div><button class="upg-buy" data-k="${k}" ${maxed||META.gems<cost?'disabled':''}>${maxed?'MAX':`강화 ${cost}💎`}</button></div>`;
   }
+  html += `<div class="meta-head" style="margin-top:10px">⭐ 특화 <span style="opacity:.7;font-size:12px"> — 영구 개방 후 판마다 1개 장착</span></div>`;
+  for(const [k,d] of Object.entries(SPEC_DEFS)){
+    const owned = META.specs.unlock[k], eq = META.specs.equipped===k;
+    const btn = owned ? `<button class="upg-buy spec-eq" data-k="${k}">${eq?'장착 해제':'장착'}</button>`
+                      : `<button class="upg-buy spec-buy" data-k="${k}" ${META.gems<d.cost?'disabled':''}>개방 ${d.cost}💎</button>`;
+    html += `<div class="upg-row${eq?' spec-on':''}"><div class="upg-info"><b>${d.name}</b>${eq?' <span style="color:var(--gold)">장착 중</span>':''}<br><span class="upg-desc">${d.desc}</span></div>${btn}</div>`;
+  }
   el.innerHTML = html;
-  el.querySelectorAll('.upg-buy').forEach(b=>b.onclick=()=>{
+  el.querySelectorAll('.spec-buy').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.k, d=SPEC_DEFS[k];
+    if(META.specs.unlock[k] || META.gems<d.cost) return;
+    META.gems-=d.cost; META.specs.unlock[k]=true; META.specs.equipped=k; saveMeta();
+    AudioMan.resume(); AudioMan.play('gamble_win',0.6);
+    renderMetaShop();
+  });
+  el.querySelectorAll('.spec-eq').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.k;
+    if(!META.specs.unlock[k]) return;
+    META.specs.equipped = META.specs.equipped===k ? null : k; saveMeta();
+    AudioMan.resume(); AudioMan.play('click',0.5);
+    renderMetaShop();
+  });
+  el.querySelectorAll('.upg-buy:not(.spec-buy):not(.spec-eq)').forEach(b=>b.onclick=()=>{
     const k=b.dataset.k, lv=META.upg[k], cost=UPG_COST(lv);
     if(lv>=UPG_DEFS[k].max || META.gems<cost) return;
     META.gems-=cost; META.upg[k]++; saveMeta();
@@ -393,9 +424,12 @@ function applyMetaToRun(upg){
   G.metaUpg = { ...zeroUpg(), ...(upg||{}) };
   G.lives = START_LIVES + 2*G.metaUpg.lives;
   for(const s of [-1,1]) G.sides[s].gold = START_GOLD + 10*G.metaUpg.gold;
+  G.metaSpec = META.specs.equipped;
+  G.leakShield = G.metaSpec==='guardian' ? 3 : 0;
+  G.freeGamble = G.metaSpec==='fortune' ? { '-1':true, '1':true } : null;
 }
 
-const G = { phase:'boot', wave:0, lives:START_LIVES, metaUpg:zeroUpg(), bossKills:0, runId:null, paused:false, speed:1, sides:{}, enemies:[], projectiles:[], kills:0, goldEarned:0, persKey:'balanced', pings:new Set(), pingSrc:new Map() };
+const G = { phase:'boot', wave:0, lives:START_LIVES, metaUpg:zeroUpg(), metaSpec:null, leakShield:0, freeGamble:null, bossKills:0, runId:null, paused:false, speed:1, sides:{}, enemies:[], projectiles:[], kills:0, goldEarned:0, persKey:'balanced', pings:new Set(), pingSrc:new Map() };
 function newSide(side){ return { side, gold:START_GOLD, carry:0, summons:0, units:[] }; }
 G.sides[-1]=newSide(-1); G.sides[1]=newSide(1);
 const summonCost = s => SUMMON_BASE + G.sides[s].summons * SUMMON_STEP;
@@ -504,19 +538,23 @@ function doSummon(side){
   AudioMan.play(side<0?'summon':'place', side<0?0.9:0.5);
   updateHUD(); return def;
 }
-function rollGamble(){ let r=rnd(), acc=0; for(const g of GAMBLE_TABLE){ acc+=g.p; if(r<acc) return g; } return GAMBLE_TABLE[0]; }
+const GAMBLE_TABLE_FORTUNE = [ { tier:0, p:0.07, label:'꽝' }, { tier:2, p:0.44 }, { tier:3, p:0.27 }, { tier:4, p:0.16 }, { tier:5, p:0.06 } ];
+function rollGamble(){ const table = G.metaSpec==='fortune' ? GAMBLE_TABLE_FORTUNE : GAMBLE_TABLE; let r=rnd(), acc=0; for(const g of table){ acc+=g.p; if(r<acc) return g; } return table[0]; }
 function doGamble(side){
   const S = G.sides[side];
-  if(S.gold < GAMBLE_COST) return null;
+  const freeFirst = !!(G.freeGamble && G.freeGamble[side]);
+  const cost = freeFirst ? 0 : GAMBLE_COST;
+  if(S.gold < cost) return null;
   const free = freeTiles(side); if(!free.length) return null;
+  if(freeFirst) G.freeGamble[side] = false;
   const res = rollGamble();
   AudioMan.play('gamble', side<0?0.9:0.4);
-  if(res.tier===0){ S.gold -= GAMBLE_COST; if(side<0) AudioMan.play('gamble_fail', 0.8); updateHUD(); return { tier:0 }; }
+  if(res.tier===0){ S.gold -= cost; if(side<0) AudioMan.play('gamble_fail', 0.8); updateHUD(); return { tier:0 }; }
   const def = pick(UNITS_BY_TIER[res.tier]);
   if(!MODELS['u_'+def.id]){ spawnFail(side, '행운 소환'); return { tier:0, spawnFail:true }; }
   const tile = chooseTile(side, def, side>0 ? aiRowPref() : null);
   if(tile<0){ placeFail(side, '행운 소환'); return { tier:0, spawnFail:true }; }
-  S.gold -= GAMBLE_COST;
+  S.gold -= cost;
   const u = spawnUnit(side, def, tile);
   if(!u){ spawnFail(side, '행운 소환'); return { tier:0, spawnFail:true }; }
   S.spawnFails = 0;
@@ -542,7 +580,7 @@ function doMerge(side){
   if(tile==null) tile = chooseTile(side, def, side>0 ? aiRowPref() : null);
   if(tile==null || tile<0) tile = freed[1];
   const p = tilePos(side, tile);
-  spawnUnit(side, def, tile);
+  const mu = spawnUnit(side, def, tile); if(mu) mu.merged = true;
   AudioMan.play('merge', side<0?0.9:0.5);
   burst(p.x, 1.2, p.z, 0xffd766, 3.2);
   updateHUD(); return def;
@@ -651,6 +689,15 @@ function damageEnemy(e, dmg, creditSide, crit=false, slow=null){
   }
 }
 function leak(e){
+  if(!e.boss && G.leakShield>0){
+    G.leakShield--;
+    scene.remove(e.group);
+    G.enemies = G.enemies.filter(x=>x!==e);
+    AudioMan.play('click', 0.5);
+    log(`⭐ 수호 특화가 침투를 막았습니다! (남은 보호 ${G.leakShield}회)`, 'sys');
+    updateHUD(); checkWaveEnd();
+    return;
+  }
   G.lives -= e.boss?5:1;
   scene.remove(e.group);
   G.enemies = G.enemies.filter(x=>x!==e);
@@ -707,6 +754,7 @@ function fireProjectile(u, target){
 // 열 보정: 후열 -15%, 전열은 담당 구역 안 적에게 +25%
 function dmgMul(u, e){
   let m = 1 + 0.03*(G.metaUpg?.dmg||0);
+  if(u.merged && G.metaSpec==='breakthrough') m *= 1.10;
   if(u.row === 2) m *= 0.85;
   else if(u.row === 0 && enemyZone(e) === u.zone) m *= 1.25;
   return m;
@@ -921,7 +969,7 @@ const RUN_KEY = 'fd_run_v1';
 function saveRun(){
   if(G.phase!=='play' || G.wave<=0) return;
   try{
-    const s = { v:1, runId:G.runId||null, wave:G.wave, lives:G.lives, kills:G.kills, dmg:Math.round(G.dmgDealt||0), goldEarned:G.goldEarned, persKey:G.persKey, speed:G.speed, meta:{ ...G.metaUpg },
+    const s = { v:1, runId:G.runId||null, spec:G.metaSpec||null, leakShield:G.leakShield||0, freeGamble:G.freeGamble||null, wave:G.wave, lives:G.lives, kills:G.kills, dmg:Math.round(G.dmgDealt||0), goldEarned:G.goldEarned, persKey:G.persKey, speed:G.speed, meta:{ ...G.metaUpg },
       sides:{ '-1':{ gold:G.sides[-1].gold, carry:G.sides[-1].carry||0, summons:G.sides[-1].summons, units:G.sides[-1].units.map(u=>({id:u.def.id, tile:u.tile})) },
               '1':{ gold:G.sides[1].gold, carry:G.sides[1].carry||0, summons:G.sides[1].summons, units:G.sides[1].units.map(u=>({id:u.def.id, tile:u.tile})) } } };
     localStorage.setItem(RUN_KEY, JSON.stringify(s));
@@ -932,6 +980,9 @@ function loadRun(){
     const s = JSON.parse(localStorage.getItem(RUN_KEY));
     if(!s || s.v!==1 || !Number.isInteger(s.wave) || s.wave<=0 || !PERSONALITIES[s.persKey]) return null;
     if(!Number.isInteger(s.lives) || s.lives<=0) return null;
+    if(s.spec!=null && !SPEC_DEFS[s.spec]) return null;
+    if(s.leakShield!=null && (!Number.isInteger(s.leakShield) || s.leakShield<0 || s.leakShield>3)) return null;
+    if(s.freeGamble!=null && typeof s.freeGamble!=='object') return null;
     for(const k of ['-1','1']){
       const ss = s.sides && s.sides[k];
       if(!ss || typeof ss.gold!=='number' || !Array.isArray(ss.units)) return null;
@@ -956,6 +1007,9 @@ function restoreRunInner(s){
   G.speed = [1,2,3].includes(s.speed)?s.speed:1; if($('btn-speed')) $('btn-speed').textContent = G.speed+'x';
   G.metaUpg = { ...zeroUpg(), ...(s.meta||{}) };
   G.runId = typeof s.runId==='string' ? s.runId : newRunId();
+  G.metaSpec = (s.spec && SPEC_DEFS[s.spec]) ? s.spec : null;
+  G.leakShield = Number.isInteger(s.leakShield) ? s.leakShield : 0;
+  G.freeGamble = (s.freeGamble && typeof s.freeGamble==='object') ? s.freeGamble : null;
   for(const side of [-1,1]){
     const old = G.sides[side]; [...old.units].forEach(removeUnit);
     const ss = s.sides[String(side)] || { gold:START_GOLD, summons:0, units:[] };
@@ -1226,7 +1280,7 @@ function tick(forceDt){
       rb.onclick = ()=>{ AudioMan.resume(); AudioMan.play('click',0.5); restoreRun(saved); };
     }
   }
-  window.__game = { G, startWave, saveRun, loadRun, clearRun, restoreRun, META, loadMeta, saveMeta, recoverAward, newRunId, applyMetaToRun, renderMetaShop, doSummon, doGamble, doMerge, spawnUnit, moveUnit, UNITS, tilePos, trackTheta, trackPoint, camera, THREE, tick, enemyZone, unitZones, sectorFull, dmgMul, zoneCovered, dangerZoneSet, aiPriorityZones, togglePing, updateZoneStrip, get prep(){ return { pending: prepPending, t: prepT, boss: prepBoss }; } };
+  window.__game = { G, startWave, saveRun, loadRun, clearRun, restoreRun, META, loadMeta, saveMeta, recoverAward, newRunId, applyMetaToRun, SPEC_DEFS, renderMetaShop, doSummon, doGamble, doMerge, spawnUnit, moveUnit, UNITS, tilePos, trackTheta, trackPoint, camera, THREE, tick, enemyZone, unitZones, sectorFull, dmgMul, zoneCovered, dangerZoneSet, aiPriorityZones, togglePing, updateZoneStrip, get prep(){ return { pending: prepPending, t: prepT, boss: prepBoss }; } };
   function loop(){ requestAnimationFrame(loop); tick(); }
   setInterval(()=>{ if(performance.now()-lastTickAt > 200) tick(); }, 200);
   loop();
