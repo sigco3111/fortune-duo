@@ -4,7 +4,7 @@ import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import * as SkeletonUtils from '../vendor/SkeletonUtils.js';
 import { TIER_NAMES, TIER_COLORS, UNITS, UNITS_BY_TIER, ATTACK_ANIMS, GAMBLE_TABLE,
          MONSTERS, BOSSES, waveSpec, PERSONALITIES, AI_LINES,
-         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r31b';
+         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r31c';
 
 const Q = new URLSearchParams(location.search);
 const AUTO = Q.get('auto') === '1';
@@ -560,6 +560,7 @@ function chooseTile(side, def, prefRow){
 // 배치 불가(전열 만석): 골드 차감 없이 실패 회계만
 function placeFail(side, what){
   const S = G.sides[side];
+  G.dbg.placeFailN = G.dbg.placeFailN||{}; G.dbg.placeFailN[side] = (G.dbg.placeFailN[side]||0)+1;
   // 배치 실패(전열 만석 등)는 일시적 상황이고 골드도 차감되지 않으므로 소환 잠금 카운터에 넣지 않는다
   // (잠금은 모델 누락 spawnFail 전용) - 전열이 차면 AI가 영구적으로 소환·도박을 멈추는 교착 방지
   if(side<0) log(`${what} 불가: 전열(가장 안쪽 줄)이 가득 차 근접 유닛을 배치할 수 없습니다. 합성으로 자리를 비우거나 전열 유닛을 옮겨 주세요.`, 'sys');
@@ -568,10 +569,12 @@ function placeFail(side, what){
 
 function spawnFail(side, what){
   const S = G.sides[side]; S.spawnFails = (S.spawnFails||0)+1;
+  G.dbg.spawnFailN = G.dbg.spawnFailN||{}; G.dbg.spawnFailN[side] = (G.dbg.spawnFailN[side]||0)+1;
   if(S.spawnFails===1) log(`${what} 실패: 유닛 모델을 불러오지 못했습니다. 골드는 차감되지 않습니다.`, 'sys');
   updateHUD();
 }
 function doSummon(side){
+  G.dbg.summonTry = G.dbg.summonTry||{}; G.dbg.summonTry[side] = (G.dbg.summonTry[side]||0)+1;
   const S = G.sides[side]; const cost = summonCost(side);
   if(S.gold < cost) return false;
   const free = freeTiles(side); if(!free.length) return false;
@@ -982,6 +985,7 @@ function aiRepos(){
 }
 function aiTick(){
   if(!AI.alive || G.phase!=='play' || G.paused) return;
+  G.dbg.aiTicks = (G.dbg.aiTicks||0)+1;
   // 위험 구역이 6초 이상 지속되면 플레이어에게 도움 요청 핑 (30초 쿨다운)
   AI.askT = Math.max(0, (AI.askT||0) - 1);
   const dzNow = dangerZoneSet();
@@ -1062,6 +1066,7 @@ function updateHUD(){
 // ---------- 기록 ----------
 G.dbg = { hits:0, dmgShown:0, burstShown:0, burstSkipped:0 };
 G.dbg.spawnFails = s => (G.sides[s].spawnFails||0);
+G.dbg.setGold = (s,v) => { G.sides[s].gold = v; };
 G.dbg.spawnAt = (s, defId, tile) => { const d = UNITS.find(u=>u.id===defId); return d ? !!spawnUnit(s, d, tile) : false; };
 G.dbg.summon = s => !!doSummon(s);
 G.dbg.gamble = s => doGamble(s);
