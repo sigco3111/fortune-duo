@@ -602,7 +602,7 @@ function checkWaveEnd(){
     AudioMan.play('waveclear', 0.8);
     log(`웨이브 ${G.wave} 클리어! 양쪽 모두 +${bonus}G`, 'sys');
     const nextBoss = waveSpec(G.wave+1).boss;
-    prepPending = true; prepT = nextBoss ? 8 : 6; prepBoss = nextBoss; bossWarned = false;
+    prepPending = true; prepT = nextBoss ? 6 : 4; prepBoss = nextBoss; bossWarned = false;
     saveRecords(); saveRun(); updateHUD();
   }
 }
@@ -867,7 +867,7 @@ function restoreRun(s){
   G.bestAtStart = loadRecords().best || 0;
   G.persKey = s.persKey; $('ai-name').textContent = PERSONALITIES[s.persKey].name;
   G.wave=s.wave; G.lives=s.lives; G.kills=s.kills||0; G.dmgDealt=s.dmg||0; G.goldEarned=s.goldEarned||0;
-  G.speed = (s.speed===2)?2:1; if($('btn-speed')) $('btn-speed').textContent = G.speed+'x';
+  G.speed = [1,2,3].includes(s.speed)?s.speed:1; if($('btn-speed')) $('btn-speed').textContent = G.speed+'x';
   for(const side of [-1,1]){
     const old = G.sides[side]; [...old.units].forEach(removeUnit);
     const ss = s.sides[String(side)] || { gold:START_GOLD, summons:0, units:[] };
@@ -1004,7 +1004,7 @@ $('fp-close').onclick = ()=>{ $('fp').style.display='none'; };
 
 $('btn-wave').onclick = ()=>{ AudioMan.resume(); AudioMan.play('click',0.5); startWave(); };
 $('btn-sound').onclick = ()=>{ AudioMan.resume(); AudioMan.toggle(); };
-if($('btn-speed')) $('btn-speed').onclick = ()=>{ AudioMan.resume(); G.speed = G.speed===1?2:1; $('btn-speed').textContent = G.speed+'x'; AudioMan.play('click',0.5); };
+if($('btn-speed')) $('btn-speed').onclick = ()=>{ AudioMan.resume(); G.speed = G.speed>=3?1:G.speed+1; $('btn-speed').textContent = G.speed+'x'; AudioMan.play('click',0.5); };
 $('btn-pause').onclick = ()=>{
   if(G.phase!=='play') return;
   G.paused = !G.paused; $('btn-pause').textContent = G.paused?'재생':'정지';
