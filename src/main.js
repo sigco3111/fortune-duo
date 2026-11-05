@@ -385,12 +385,13 @@ function chooseTile(side, def, prefRow){
     if(!front.length) return -1;
     const dz = pickPriorityZones(side);
     if(dz.size){ const cover = front.filter(i => dz.has(zoneOfTile(side, i % TILE_SECTORS))); if(cover.length) front = cover; }
-    // 합성 장인 AI: 같은 유닛 재료가 있는 구역 우선
+    // 합성 장인 AI: 같은 유닛 재료가 있는 구역 우선 (재료 모으기가 분산 배치보다 우선)
+    let sameApplied = false;
     if(side>0 && G.persKey==='merger'){
       const sameSecs = new Set(G.sides[1].units.filter(u=>u.def.id===def.id).map(u=>u.sector));
-      if(sameSecs.size){ const same = front.filter(i => sameSecs.has(i % TILE_SECTORS)); if(same.length) front = same; }
+      if(sameSecs.size){ const same = front.filter(i => sameSecs.has(i % TILE_SECTORS)); if(same.length){ front = same; sameApplied = true; } }
     }
-    const empt = front.filter(emptySector);
+    const empt = sameApplied ? [] : front.filter(emptySector);
     return pick(empt.length ? empt : front);
   }
   const row = prefRow != null ? prefRow : (def.kind==='ranged' ? 2 : 1);
@@ -399,12 +400,13 @@ function chooseTile(side, def, prefRow){
   // 적이 지나는데 커버가 없는 위험 구역 담당 타일 우선 (AI의 약한 구역 보강, 핑 반영)
   const dz = pickPriorityZones(side);
   if(dz.size){ const cover = pool.filter(i => dz.has(zoneOfTile(side, i % TILE_SECTORS))); if(cover.length) pool = cover; }
-  // 합성 장인 AI: 같은 유닛 재료가 있는 구역 우선
+  // 합성 장인 AI: 같은 유닛 재료가 있는 구역 우선 (재료 모으기가 분산 배치보다 우선)
+  let sameApplied = false;
   if(side>0 && G.persKey==='merger'){
     const sameSecs = new Set(G.sides[1].units.filter(u=>u.def.id===def.id).map(u=>u.sector));
-    if(sameSecs.size){ const same = pool.filter(i => sameSecs.has(i % TILE_SECTORS)); if(same.length) pool = same; }
+    if(sameSecs.size){ const same = pool.filter(i => sameSecs.has(i % TILE_SECTORS)); if(same.length){ pool = same; sameApplied = true; } }
   }
-  const empt = pool.filter(emptySector);
+  const empt = sameApplied ? [] : pool.filter(emptySector);
   return pick(empt.length ? empt : pool);
 }
 
