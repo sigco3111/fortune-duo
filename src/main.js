@@ -349,6 +349,22 @@ const SPEC_DEFS = {
   guardian:     { name:'수호 특화', desc:'매 판 첫 침투 3회 생명 무손실 (보스 제외)', cost:40 },
   fortune:      { name:'행운 특화', desc:'양쪽 첫 행운 소환 무료 + 상위 등급 확률 상승', cost:40 },
 };
+// ---------- 축복: 다음 판 1회성 소모품 (영구 강화 아님, 명시적 구매) ----------
+const BLESS_DEFS = {
+  vitality:   { name:'수호 축복', desc:'다음 판 시작 공유 생명 +5 (1회성)', cost:20 },
+  prosperity: { name:'여유 축복', desc:'다음 판 양쪽 진영 시작 골드 +40 (1회성)', cost:15 },
+};
+function applyPendingBlessings(){
+  const bl = Array.isArray(META.pendingBless)?META.pendingBless:[];
+  G.bless = null;
+  if(!bl.length) return;
+  for(const k of bl){
+    if(k==='vitality') G.lives += 5;
+    if(k==='prosperity'){ G.sides[-1].gold += 40; G.sides[1].gold += 40; }
+  }
+  G.bless = bl;
+  log(`축복 발동: ${bl.map(k=>BLESS_DEFS[k]?BLESS_DEFS[k].name:k).join('·')} — 이번 판만 적용`, 'sys');
+}
 function zeroUpg(){ return { gold:0, lives:0, dmg:0, econ:0 }; }
 function loadMeta(){
   try{
@@ -361,14 +377,27 @@ function loadMeta(){
     for(const k of Object.keys(SPEC_DEFS)) mm.specs.unlock[k] = !!(sp.unlock && sp.unlock[k]===true);
     if(typeof sp.equipped==='string' && SPEC_DEFS[sp.equipped] && mm.specs.unlock[sp.equipped]) mm.specs.equipped = sp.equipped;
     mm.mastery = (mm.mastery && typeof mm.mastery==='object' && !Array.isArray(mm.mastery)) ? mm.mastery : {};
+    mm.pendingBless = Array.isArray(mm.pendingBless) ? mm.pendingBless.filter(k=>k==='vitality'||k==='prosperity') : [];
     return mm;
-  }catch(e){ return { v:1, gems:0, upg:zeroUpg(), lastAward:null, specs:{ unlock:{breakthrough:false,guardian:false,fortune:false}, equipped:null }, mastery:{} }; }
+  }catch(e){ return { v:1, gems:0, upg:zeroUpg(), lastAward:null, specs:{ unlock:{breakthrough:false,guardian:false,fortune:false}, equipped:null }, mastery:{}, pendingBless:[] }; }
 }
 const META = loadMeta();
 function saveMeta(){ try{ localStorage.setItem(META_KEY, JSON.stringify(META)); }catch(e){} }
 // ---------- 보상 내구성: 지급 대기 저널 (크래시·새로고침 후에도 정확히 한 번 지급) ----------
 const AWARD_KEY = 'fd_award_v1';
 function newRunId(){ return 'r'+Date.now().toString(36)+Math.floor(Math.random()*1e6).toString(36); }
+function mergeBadges(list){
+  if(!Array.isArray(list)) return;
+  META.mastery = META.mastery || {};
+  for(const b of list){
+    if(!Array.isArray(b)) continue;
+    const k=b[0], m=b[1];
+    if(k==='trio'){ META.mastery.trio = true; continue; }
+    if(!CHALLENGES[k]) continue;
+    META.mastery[k] = Array.isArray(META.mastery[k]) ? META.mastery[k] : [];
+    if(!META.mastery[k].includes(m)) META.mastery[k].push(m);
+  }
+}
 function recoverAward(){
   try{
     const j = JSON.parse(localStorage.getItem(AWARD_KEY));
@@ -376,7 +405,7 @@ function recoverAward(){
     // 같은 런의 클리어-지점 스냅샷이 남아 있다면 함께 제거 (지급 완료된 런의 재이어하기·중복 지급 방지)
     try{ const s0 = JSON.parse(localStorage.getItem(RUN_KEY)); if(s0 && s0.runId === j.runId) localStorage.removeItem(RUN_KEY); }catch(e0){}
     if(META.lastAward === j.runId){ localStorage.removeItem(AWARD_KEY); return null; }
-    META.gems += j.gems; META.lastAward = j.runId; saveMeta();
+    mergeBadges(Array.isArray(j.badges)?j.badges:[]); META.gems += j.gems; META.lastAward = j.runId; saveMeta();
     localStorage.removeItem(AWARD_KEY);
     return j.gems;
   }catch(e){ try{ localStorage.removeItem(AWARD_KEY); }catch(e2){} return null; }
@@ -390,6 +419,13 @@ function renderMetaShop(){
     const lv = META.upg[k], maxed = lv>=d.max, cost = maxed?0:UPG_COST(lv);
     html += `<div class="upg-row"><div class="upg-info"><b>${d.name}</b> <span class="pips">${'●'.repeat(lv)}${'○'.repeat(d.max-lv)}</span><br><span class="upg-desc">${d.desc}</span></div><button class="upg-buy" data-k="${k}" ${maxed||META.gems<cost?'disabled':''}>${maxed?'MAX':`강화 ${cost}💎`}</button></div>`;
   }
+  html += `<div class="meta-head" style="margin-top:10px">🙏 축복 <span style="opacity:.7;font-size:12px"> — 다음 판에만 1회 적용, 구매 즉시 예약</span></div>`;
+  for(const [k,d] of Object.entries(BLESS_DEFS)){
+    const pend = (META.pendingBless||[]).includes(k);
+    const btn = pend ? `<button class="upg-buy" disabled>예약됨</button>`
+                     : `<button class="upg-buy bless-buy" data-k="${k}" ${META.gems<d.cost?'disabled':''}>구매 ${d.cost}💎</button>`;
+    html += `<div class="upg-row"><div class="upg-info"><b>${d.name}</b>${pend?' <span style="color:var(--gold)">다음 판 적용</span>':''}<br><span class="upg-desc">${d.desc}</span></div>${btn}</div>`;
+  }
   html += `<div class="meta-head" style="margin-top:10px">⭐ 특화 <span style="opacity:.7;font-size:12px"> — 영구 개방 후 판마다 1개 장착</span></div>`;
   for(const [k,d] of Object.entries(SPEC_DEFS)){
     const owned = META.specs.unlock[k], eq = META.specs.equipped===k;
@@ -398,6 +434,15 @@ function renderMetaShop(){
     html += `<div class="upg-row${eq?' spec-on':''}"><div class="upg-info"><b>${d.name}</b>${eq?' <span style="color:var(--gold)">장착 중</span>':''}<br><span class="upg-desc">${d.desc}</span></div>${btn}</div>`;
   }
   el.innerHTML = html;
+  el.querySelectorAll('.bless-buy').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.k, d=BLESS_DEFS[k];
+    META.pendingBless = Array.isArray(META.pendingBless)?META.pendingBless:[];
+    if(META.pendingBless.includes(k) || META.gems<d.cost) return;
+    META.gems-=d.cost; META.pendingBless.push(k); saveMeta();
+    AudioMan.resume(); AudioMan.play('gamble_win',0.6);
+    log(`${d.name} 예약 — 다음 판 시작 시 1회 적용`, 'sys');
+    renderMetaShop();
+  });
   el.querySelectorAll('.spec-buy').forEach(b=>b.onclick=()=>{
     const k=b.dataset.k, d=SPEC_DEFS[k];
     if(META.specs.unlock[k] || META.gems<d.cost) return;
@@ -1019,9 +1064,11 @@ function showRecords(){
 // ---------- 진행 저장(이어하기): 웨이브 클리어 지점 스냅샷 ----------
 const RUN_KEY = 'fd_run_v1';
 function saveRun(){
+  // 축복은 첫 클리어-지점 저장 시점에 소비 확정 (그 전 크래시·새로고침이면 예약 유지 → 재화 손실 없음)
+  if(G.bless && G.bless.length){ G.blessConsumed = true; META.pendingBless = []; saveMeta(); }
   if(G.phase!=='play' || G.wave<=0) return;
   try{
-    const s = { v:1, runId:G.runId||null, ch:Array.isArray(G.ch)?G.ch:[], spec:G.metaSpec||null, leakShield:G.leakShield||0, freeGamble:G.freeGamble||null, wave:G.wave, lives:G.lives, kills:G.kills, dmg:Math.round(G.dmgDealt||0), goldEarned:G.goldEarned, persKey:G.persKey, speed:G.speed, meta:{ ...G.metaUpg },
+    const s = { v:1, runId:G.runId||null, bless:Array.isArray(G.bless)?G.bless:null, ch:Array.isArray(G.ch)?G.ch:[], spec:G.metaSpec||null, leakShield:G.leakShield||0, freeGamble:G.freeGamble||null, wave:G.wave, lives:G.lives, kills:G.kills, dmg:Math.round(G.dmgDealt||0), goldEarned:G.goldEarned, persKey:G.persKey, speed:G.speed, meta:{ ...G.metaUpg },
       sides:{ '-1':{ gold:G.sides[-1].gold, carry:G.sides[-1].carry||0, summons:G.sides[-1].summons, units:G.sides[-1].units.map(u=>({id:u.def.id, tile:u.tile, lv:u.lv||1, kills:u.kills||0})) },
               '1':{ gold:G.sides[1].gold, carry:G.sides[1].carry||0, summons:G.sides[1].summons, units:G.sides[1].units.map(u=>({id:u.def.id, tile:u.tile, lv:u.lv||1, kills:u.kills||0})) } } };
     localStorage.setItem(RUN_KEY, JSON.stringify(s));
@@ -1064,6 +1111,7 @@ function restoreRunInner(s){
   G.runId = typeof s.runId==='string' ? s.runId : newRunId();
   G.metaSpec = (s.spec && SPEC_DEFS[s.spec]) ? s.spec : null;
   G.ch = (Array.isArray(s.ch)?s.ch:[]).filter(k=>CHALLENGES[k]);
+  G.bless = Array.isArray(s.bless)?s.bless:null;
   G.leakShield = Number.isInteger(s.leakShield) ? s.leakShield : 0;
   G.freeGamble = (s.freeGamble && typeof s.freeGamble==='object') ? s.freeGamble : null;
   for(const side of [-1,1]){
@@ -1086,28 +1134,28 @@ function gameOver(){
   if(overFired) return; overFired = true;
   G.phase='over';
   const gemsEarned = Math.round((Math.max(0, G.wave-1) + 2*(G.bossKills||0)) * (1 + 0.25*(G.ch?G.ch.length:0)));
-  // 의식 마스터리: 의식별 웨이브 8/12/16 최초 달성 시 영구 배지 + 1회성 젬 보너스 (머지 멱등)
+  // 의식 마스터리: 최초 달성 배지를 순수 계산만 하고 저널에 함께 기록 (복구 시에도 젬+배지가 정확히 한 세트로 반영)
   const newBadges = [];
   if(G.ch && G.ch.length){
-    META.mastery = META.mastery || {};
+    const mm = META.mastery || {};
     for(const k of G.ch){
       if(!CHALLENGES[k]) continue;
-      META.mastery[k] = Array.isArray(META.mastery[k]) ? META.mastery[k] : [];
-      for(const m of [8,12,16]) if(G.wave>=m && !META.mastery[k].includes(m)){ META.mastery[k].push(m); newBadges.push([k,m]); }
+      const have = Array.isArray(mm[k]) ? mm[k] : [];
+      for(const m of [8,12,16]) if(G.wave>=m && !have.includes(m)) newBadges.push([k,m]);
     }
-    if(G.ch.length>=3 && G.wave>=12 && META.mastery.trio!==true){ META.mastery.trio = true; newBadges.push(['trio',12]); }
+    if(G.ch.length>=3 && G.wave>=12 && mm.trio!==true) newBadges.push(['trio',12]);
   }
   const badgeBonus = newBadges.reduce((s,b)=> s + (b[0]==='trio'?30:(b[1]===8?5:b[1]===12?10:15)), 0);
   const gemsTotal = gemsEarned + badgeBonus;
   const runId = G.runId || newRunId();
   // 1) 저널 먼저: 이후 어디서 중단돼도 부팅 시 정확히 한 번 지급
-  try{ localStorage.setItem(AWARD_KEY, JSON.stringify({ runId, gems: gemsTotal })); }catch(e){}
+  try{ localStorage.setItem(AWARD_KEY, JSON.stringify({ runId, gems: gemsTotal, badges: newBadges })); }catch(e){}
   clearRun();
   const prevBest = (G.bestAtStart != null) ? G.bestAtStart : 0;
   const r = loadRecords(); r.games++; localStorage.setItem('fd_records_v1', JSON.stringify(r));
   saveRecords();
   // 2) 실제 지급 + 지급 완료 표시 (같은 runId 재지급 불가)
-  if(META.lastAward !== runId){ META.gems += gemsTotal; META.lastAward = runId; saveMeta(); }
+  if(META.lastAward !== runId){ mergeBadges(newBadges); META.gems += gemsTotal; META.lastAward = runId; saveMeta(); }
   try{ localStorage.removeItem(AWARD_KEY); }catch(e){}
   AudioMan.play('defeat', 0.9); AudioMan.bgmStop();
   $('over-title').textContent = '성문이 함락됐습니다';
@@ -1116,9 +1164,10 @@ function gameOver(){
   if(AI.alive) aiSay('end');
   $('over-stats').innerHTML = `<div>도달 웨이브<b>${G.wave}</b></div><div>처치 수<b>${G.kills}</b></div><div>총 피해량<b>${Math.round(G.dmgDealt||0).toLocaleString()}</b></div><div>획득 골드<b>${G.goldEarned}</b></div><div>AI 최종 유닛<b>${aiS.units.length}기</b></div><div>최고 기록<b>${loadRecords().best}</b></div>${G.ch&&G.ch.length?`<div>도전 의식<b>${G.ch.map(k=>CHALLENGES[k].name).join('·')}</b></div>`:''}<div>획득 젬<b>+${gemsTotal} 💎</b></div>${newBadges.length?`<div>새 배지<b>${newBadges.map(([k,m])=>k==='trio'?'삼중 의식 🏅':CHALLENGES[k].name+' '+(m===8?'Ⅰ':m===12?'Ⅱ':'Ⅲ')).join(' · ')}</b></div>`:''}<div>보유 젬<b>${META.gems}</b></div>`;
   if(G.leakLog.length){
-    const byZ = {};
-    for(const l of G.leakLog){ const nm = (ZONE_TRAVEL.find(([zz])=>zz===l.z)||[])[1] || ('구역'+(l.z+1)); byZ[nm] = (byZ[nm]||0)+1; }
-    const top = Object.entries(byZ).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([n,c])=>`${n} ×${c}`).join(', ');
+    // 구역 표시는 무의미(누수 지점의 각도가 항상 트랙 시작점으로 기록됨) → 티어·보스 분석으로 대체
+    const byT = {}; let bossN = 0;
+    for(const l of G.leakLog){ if(l.boss){ bossN++; continue; } byT[l.t] = (byT[l.t]||0)+1; }
+    const top = Object.entries(byT).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([t,c])=>`${+t+1}티어 ×${c}`).join(', ') + (bossN?`${Object.keys(byT).length?', ':''}보스 ×${bossN}`:'');
     const blockedN = G.leakLog.filter(l=>l.blocked).length;
     $('over-record').innerHTML = ((G.wave > prevBest && G.wave > 0) ? '🏆 신기록 달성!<br>' : '') + `침투 분석: ${top}${blockedN?` (수호 차단 ${blockedN}회)`:''}`;
   }
@@ -1267,6 +1316,7 @@ $('btn-start').onclick = ()=>{
   clearRun();
   G.runId = newRunId();
   applyMetaToRun(META.upg);
+  applyPendingBlessings();
   G.bestAtStart = loadRecords().best || 0;
   G.persKey = selPers==='random' ? pick(['balanced','attacker','saver','merger','support','adaptive']) : selPers;
   G.ch = [...selCh].filter(k=>CHALLENGES[k]);
@@ -1369,6 +1419,7 @@ function tick(forceDt){
       G.persKey = Q.get('pers') || 'balanced';
       G.ch = (Q.get('ch')||'').split(',').filter(k=>CHALLENGES[k]);
       applyMetaToRun(META.upg);
+      applyPendingBlessings();
       $('ai-name').textContent = PERSONALITIES[G.persKey].name;
       $('start').style.display='none'; G.phase='play'; AI.alive=true;
     }
