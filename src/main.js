@@ -947,7 +947,7 @@ function aiTick(){
     const d = doSummon(1); if(d) aiSay('summon'); return;
   }
   if(spawnOk && S.gold > summonCost(1)*4 && freeTiles(1).length && !P.saver){ doSummon(1); return; }
-  if(P.repos){ AI.reposT++; if(AI.reposT>=8){ AI.reposT=0; aiRepos(); } }
+  if(P.repos || G.lives<=12){ AI.reposT++; if(AI.reposT>=(P.repos?8:4)){ AI.reposT=0; aiRepos(); } }
 }
 
 // ---------- HUD ----------
@@ -1271,7 +1271,22 @@ function autoTick(dt){
   if(findTriple(-1)){ doMerge(-1); return; }
   if((S.spawnFails||0) >= 3) return;
   if(S.gold >= summonCost(-1) && freeTiles(-1).length){ doSummon(-1); return; }
-  if(S.gold > GAMBLE_COST*2 && rnd()<0.3){ doGamble(-1); }
+  if(S.gold > GAMBLE_COST*2 && rnd()<0.3){ doGamble(-1); return; }
+  // 위험 구역 대응: 안전한 구역의 유닛을 위험 구역 빈 타일로 (사람 플레이어 대역)
+  const dz = dangerZoneSet();
+  if(dz.size){
+    const freePri = [];
+    for(let i=0;i<TILES_PER_SIDE;i++){
+      if(sideUnitAt(-1,i)) continue;
+      if(dz.has(zoneOfTile(-1, i % TILE_SECTORS))) freePri.push(i);
+    }
+    const cand = S.units.filter(u=> !dz.has(u.zone) && zoneCovered(u.zone));
+    for(const u of cand){
+      const wantRows = u.def.kind==='melee' ? [0] : [1,2];
+      const t = freePri.find(i=> wantRows.includes(Math.floor(i/TILE_SECTORS)));
+      if(t!=null){ moveUnit(-1, u.tile, t); return; }
+    }
+  }
 }
 
 // ---------- 메인 루프 ----------
