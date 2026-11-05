@@ -362,13 +362,15 @@ function recoverAward(){
   try{
     const j = JSON.parse(localStorage.getItem(AWARD_KEY));
     if(!j || typeof j.runId!=='string' || !Number.isInteger(j.gems) || j.gems<0){ localStorage.removeItem(AWARD_KEY); return null; }
+    // 같은 런의 클리어-지점 스냅샷이 남아 있다면 함께 제거 (지급 완료된 런의 재이어하기·중복 지급 방지)
+    try{ const s0 = JSON.parse(localStorage.getItem(RUN_KEY)); if(s0 && s0.runId === j.runId) localStorage.removeItem(RUN_KEY); }catch(e0){}
     if(META.lastAward === j.runId){ localStorage.removeItem(AWARD_KEY); return null; }
     META.gems += j.gems; META.lastAward = j.runId; saveMeta();
     localStorage.removeItem(AWARD_KEY);
     return j.gems;
   }catch(e){ try{ localStorage.removeItem(AWARD_KEY); }catch(e2){} return null; }
 }
-let RECOVERED_GEMS = recoverAward();
+let RECOVERED_GEMS = null;
 function renderMetaShop(){
   const el = $('meta-shop'); if(!el) return;
   let html = `<div class="meta-head">💎 보유 젬 <b>${META.gems}</b><span style="opacity:.7;font-size:12px"> — 웨이브 클리어·보스 처치로 획득, 다음 판부터 영구 적용</span></div>`;
@@ -394,7 +396,7 @@ function applyMetaToRun(upg){
 }
 
 const G = { phase:'boot', wave:0, lives:START_LIVES, metaUpg:zeroUpg(), bossKills:0, runId:null, paused:false, speed:1, sides:{}, enemies:[], projectiles:[], kills:0, goldEarned:0, persKey:'balanced', pings:new Set(), pingSrc:new Map() };
-function newSide(side){ return { side, gold:START_GOLD, summons:0, units:[] }; }
+function newSide(side){ return { side, gold:START_GOLD, carry:0, summons:0, units:[] }; }
 G.sides[-1]=newSide(-1); G.sides[1]=newSide(1);
 const summonCost = s => SUMMON_BASE + G.sides[s].summons * SUMMON_STEP;
 
@@ -635,7 +637,9 @@ function damageEnemy(e, dmg, creditSide, crit=false, slow=null){
     if(e.hpBar) e.hpBar.visible=false;
     if(e.boss){ dmgNum(e.group.position.x, 3.4, e.group.position.z, '보스 처치!', '#ff8a5c', true); ring(e.group.position.x, e.group.position.z, 0xff8a5c); if(AI.alive) aiSay('bossKill'); }
     const S = G.sides[creditSide] || G.sides[-1];
-    const gold = Math.round((e.boss ? 50 : waveSpec(G.wave).killGold) * (1 + 0.05*(G.metaUpg?.econ||0)));
+    // 소수점 이월: 낮은 기본 골드 구간에서도 강화 단계의 누적 이득이 실제 지급되도록
+    S.carry = (S.carry||0) + (e.boss ? 50 : waveSpec(G.wave).killGold) * (1 + 0.05*(G.metaUpg?.econ||0));
+    const gold = Math.floor(S.carry); S.carry -= gold;
     if(e.boss) G.bossKills = (G.bossKills||0)+1;
     S.gold += gold; G.goldEarned += gold; G.kills++;
     G.dbg.dmgShown++;
@@ -918,8 +922,8 @@ function saveRun(){
   if(G.phase!=='play' || G.wave<=0) return;
   try{
     const s = { v:1, runId:G.runId||null, wave:G.wave, lives:G.lives, kills:G.kills, dmg:Math.round(G.dmgDealt||0), goldEarned:G.goldEarned, persKey:G.persKey, speed:G.speed, meta:{ ...G.metaUpg },
-      sides:{ '-1':{ gold:G.sides[-1].gold, summons:G.sides[-1].summons, units:G.sides[-1].units.map(u=>({id:u.def.id, tile:u.tile})) },
-              '1':{ gold:G.sides[1].gold, summons:G.sides[1].summons, units:G.sides[1].units.map(u=>({id:u.def.id, tile:u.tile})) } } };
+      sides:{ '-1':{ gold:G.sides[-1].gold, carry:G.sides[-1].carry||0, summons:G.sides[-1].summons, units:G.sides[-1].units.map(u=>({id:u.def.id, tile:u.tile})) },
+              '1':{ gold:G.sides[1].gold, carry:G.sides[1].carry||0, summons:G.sides[1].summons, units:G.sides[1].units.map(u=>({id:u.def.id, tile:u.tile})) } } };
     localStorage.setItem(RUN_KEY, JSON.stringify(s));
   }catch(e){}
 }
@@ -931,6 +935,7 @@ function loadRun(){
     for(const k of ['-1','1']){
       const ss = s.sides && s.sides[k];
       if(!ss || typeof ss.gold!=='number' || !Array.isArray(ss.units)) return null;
+      if(ss.carry!=null && (typeof ss.carry!=='number' || !(ss.carry>=0) || ss.carry>1000)) return null;
       for(const su of ss.units){
         if(!su || !UNITS.some(d=>d.id===su.id) || !Number.isInteger(su.tile) || su.tile<0 || su.tile>=TILES_PER_SIDE) return null;
       }
@@ -954,7 +959,7 @@ function restoreRunInner(s){
   for(const side of [-1,1]){
     const old = G.sides[side]; [...old.units].forEach(removeUnit);
     const ss = s.sides[String(side)] || { gold:START_GOLD, summons:0, units:[] };
-    old.gold=ss.gold; old.summons=ss.summons;
+    old.gold=ss.gold; old.carry = typeof ss.carry==='number' ? ss.carry : 0; old.summons=ss.summons;
     for(const su of ss.units){ const def = UNITS.find(d=>d.id===su.id); if(def && su.tile>=0 && su.tile<TILES_PER_SIDE && !sideUnitAt(side, su.tile)) spawnUnit(side, def, su.tile); }
   }
   $('start').style.display='none'; G.phase='play'; AI.alive=true;
@@ -1210,6 +1215,7 @@ function tick(forceDt){
       $('start').style.display='none'; G.phase='play'; AI.alive=true;
     }
   } else {
+    RECOVERED_GEMS = recoverAward();
     showRecords(); renderMetaShop(); $('start').style.display='flex';
     try{ if(sessionStorage.getItem('fd_scroll_shop')==='1'){ sessionStorage.removeItem('fd_scroll_shop'); const ms=$('meta-shop'); if(ms){ ms.scrollIntoView({behavior:'smooth',block:'center'}); ms.classList.add('shop-flash'); setTimeout(()=>ms.classList.remove('shop-flash'), 1800); } } }catch(e){}
     const saved = loadRun();
