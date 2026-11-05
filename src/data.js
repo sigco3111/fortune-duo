@@ -40,11 +40,11 @@ export const ATTACK_ANIMS = {...KAY_ATK, ...RPG_ATK};
 
 // 행운 소환 확률 (T2~T5, 실패)
 export const GAMBLE_TABLE = [
-  { tier:0, p:0.10, label:'꽝' },
-  { tier:2, p:0.47 },
+  { tier:0, p:0.08, label:'꽝' },
+  { tier:2, p:0.45 },
   { tier:3, p:0.27 },
   { tier:4, p:0.12 },
-  { tier:5, p:0.04 },
+  { tier:5, p:0.08 },
 ];
 
 // 몬스터 풀 (웨이브 등장 티어별)
