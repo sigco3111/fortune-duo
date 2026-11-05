@@ -571,6 +571,7 @@ function doMerge(side){
   const triple = findTriple(side); if(!triple) return null;
   const tier = triple[0].def.tier;
   const freed = triple.map(u=>u.tile);
+  const inheritKills = Math.floor(triple.reduce((a,u)=>a+(u.kills||0),0)/3);
   triple.forEach(u=>{ burst(u.group.position.x, 1, u.group.position.z, 0xffd766); removeUnit(u); });
   const def = pick(UNITS_BY_TIER[tier+1]);
   if(!MODELS['u_'+def.id]){ log('합성 실패: 결과 유닛 모델을 불러오지 못했습니다. 유닛은 그대로 유지됩니다.', 'sys'); return null; }
@@ -580,7 +581,8 @@ function doMerge(side){
   if(tile==null) tile = chooseTile(side, def, side>0 ? aiRowPref() : null);
   if(tile==null || tile<0) tile = freed[1];
   const p = tilePos(side, tile);
-  const mu = spawnUnit(side, def, tile); if(mu) mu.merged = true;
+  const mu = spawnUnit(side, def, tile);
+  if(mu){ mu.merged = true; mu.kills = inheritKills; mu.lv = unitLevel(inheritKills); if(mu.lv>1){ mu.aura && mu.aura.scale.setScalar(1+0.04*mu.lv); } }
   AudioMan.play('merge', side<0?0.9:0.5);
   burst(p.x, 1.2, p.z, 0xffd766, 3.2);
   updateHUD(); return def;
@@ -666,6 +668,7 @@ function checkLevelUp(u){
   const nl = unitLevel(u.kills||0);
   if(nl <= (u.lv||1)) return;
   u.lv = nl;
+  if(u.aura) u.aura.scale.setScalar(1+0.04*nl);
   const p = u.group.position;
   burst(p.x, 1.0, p.z, 0x9fd4ff, 2.2);
   dmgNum(p.x, 2.6, p.z, 'Lv.'+nl+'!', '#9fd4ff', true);
