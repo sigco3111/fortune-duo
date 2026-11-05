@@ -222,6 +222,15 @@ function updateZoneStrip(){
   const enemyZones = new Set(); for(const e of G.enemies){ if(!e.dead) enemyZones.add(enemyZone(e)); }
   // 핑 자동 해제: 커버가 확보되고 적도 없으면 조용히 해제
   for(const z of [...G.pings]){ if(!enemyZones.has(z) && zoneCovered(z)) G.pings.delete(z); }
+  // 구역 완성(전·중·후열 충족) 타일 강조
+  for(const side of [-1,1]) for(let sec=0; sec<TILE_SECTORS; sec++){
+    const full = sectorFull(side, sec);
+    for(let row=0; row<TILE_ROWS; row++){
+      const m = tileMeshes[side][row*TILE_SECTORS+sec]; if(!m) continue;
+      const want = full ? 0.92 : 0.6;
+      if(m.material.opacity !== want) m.material.opacity = want;
+    }
+  }
   ZONE_TRAVEL.forEach(([z], k)=>{
     const dot = el.children[k];
     let cls = enemyZones.has(z) ? (zoneCovered(z) ? 'cov' : 'danger') : '';
@@ -722,7 +731,24 @@ function aiRepos(){
   const frontFree = []; for(let i=0;i<TILE_SECTORS;i++) if(!sideUnitAt(1,i)) frontFree.push(i);
   if(meleeNotFront.length && frontFree.length){ moveUnit(1, meleeNotFront[0].tile, frontFree[0]); return; }
   const midFree = []; for(let i=TILE_SECTORS;i<TILE_SECTORS*2;i++) if(!sideUnitAt(1,i)) midFree.push(i);
-  if(rangedFront.length && midFree.length){ moveUnit(1, rangedFront[0].tile, midFree[0]); }
+  if(rangedFront.length && midFree.length){ moveUnit(1, rangedFront[0].tile, midFree[0]); return; }
+  // 위험·핑 구역 대응 이동: 안전하고 커버된 구역의 유닛 하나를 우선 구역의 빈 타일로
+  const dz = (G.persKey==='support'||G.persKey==='adaptive') ? aiPriorityZones() : dangerZoneSet();
+  if(!dz.size) return;
+  const freePri = [];
+  for(let i=0;i<TILES_PER_SIDE;i++){
+    if(sideUnitAt(1,i)) continue;
+    if(dz.has(zoneOfTile(1, i % TILE_SECTORS))) freePri.push({ i, row: Math.floor(i/TILE_SECTORS) });
+  }
+  if(!freePri.length) return;
+  const cand = S.units.filter(u=> !dz.has(u.zone) && zoneCovered(u.zone));
+  for(const u of cand){
+    const wantRows = u.def.kind==='melee' ? [0] : u.def.kind==='ranged' ? [2,1] : [1,2];
+    for(const wr of wantRows){
+      const t = freePri.find(t=>t.row===wr);
+      if(t){ moveUnit(1, u.tile, t.i); return; }
+    }
+  }
 }
 function aiTick(){
   if(!AI.alive || G.phase!=='play' || G.paused) return;
