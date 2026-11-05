@@ -603,7 +603,7 @@ function checkWaveEnd(){
     log(`웨이브 ${G.wave} 클리어! 양쪽 모두 +${bonus}G`, 'sys');
     const nextBoss = waveSpec(G.wave+1).boss;
     prepPending = true; prepT = nextBoss ? 8 : 6; prepBoss = nextBoss; bossWarned = false;
-    saveRecords(); updateHUD();
+    saveRecords(); saveRun(); updateHUD();
   }
 }
 function updateEnemies(dt){
@@ -849,9 +849,43 @@ function showRecords(){
     : '아직 기록이 없습니다. 첫 게임을 시작해 보세요!';
 }
 
+// ---------- 진행 저장(이어하기): 웨이브 클리어 지점 스냅샷 ----------
+const RUN_KEY = 'fd_run_v1';
+function saveRun(){
+  if(G.phase!=='play' || G.wave<=0) return;
+  try{
+    const s = { v:1, wave:G.wave, lives:G.lives, kills:G.kills, dmg:Math.round(G.dmgDealt||0), goldEarned:G.goldEarned, persKey:G.persKey, speed:G.speed,
+      sides:{ '-1':{ gold:G.sides[-1].gold, summons:G.sides[-1].summons, units:G.sides[-1].units.map(u=>({id:u.def.id, tile:u.tile})) },
+              '1':{ gold:G.sides[1].gold, summons:G.sides[1].summons, units:G.sides[1].units.map(u=>({id:u.def.id, tile:u.tile})) } } };
+    localStorage.setItem(RUN_KEY, JSON.stringify(s));
+  }catch(e){}
+}
+function loadRun(){ try{ const s=JSON.parse(localStorage.getItem(RUN_KEY)); return (s && s.v===1 && s.wave>0 && PERSONALITIES[s.persKey]) ? s : null; }catch(e){ return null; } }
+function clearRun(){ try{ localStorage.removeItem(RUN_KEY); }catch(e){} }
+function restoreRun(s){
+  clearRun();
+  G.bestAtStart = loadRecords().best || 0;
+  G.persKey = s.persKey; $('ai-name').textContent = PERSONALITIES[s.persKey].name;
+  G.wave=s.wave; G.lives=s.lives; G.kills=s.kills||0; G.dmgDealt=s.dmg||0; G.goldEarned=s.goldEarned||0;
+  G.speed = (s.speed===2)?2:1; if($('btn-speed')) $('btn-speed').textContent = G.speed+'x';
+  for(const side of [-1,1]){
+    const old = G.sides[side]; [...old.units].forEach(removeUnit);
+    const ss = s.sides[String(side)] || { gold:START_GOLD, summons:0, units:[] };
+    old.gold=ss.gold; old.summons=ss.summons;
+    for(const su of ss.units){ const def = UNITS.find(d=>d.id===su.id); if(def && su.tile>=0 && su.tile<TILES_PER_SIDE && !sideUnitAt(side, su.tile)) spawnUnit(side, def, su.tile); }
+  }
+  $('start').style.display='none'; G.phase='play'; AI.alive=true;
+  const nextBoss = waveSpec(G.wave+1).boss; prepPending=true; prepT=3; prepBoss=nextBoss; bossWarned=false;
+  AudioMan.bgmStart();
+  log(`저장된 게임을 이어갑니다 — 웨이브 ${s.wave} 클리어 지점 (공유 생명 ${s.lives})`, 'sys');
+  aiSay('start');
+  updateHUD(); updateZoneStrip();
+}
+
 // ---------- 게임 오버 ----------
 function gameOver(){
   G.phase='over';
+  clearRun();
   const prevBest = (G.bestAtStart != null) ? G.bestAtStart : 0;
   const r = loadRecords(); r.games++; localStorage.setItem('fd_records_v1', JSON.stringify(r));
   saveRecords();
@@ -993,6 +1027,7 @@ let selPers = 'random';
 })();
 $('btn-start').onclick = ()=>{
   AudioMan.resume();
+  clearRun();
   G.bestAtStart = loadRecords().best || 0;
   G.persKey = selPers==='random' ? pick(['balanced','attacker','saver','merger','support','adaptive']) : selPers;
   $('ai-name').textContent = PERSONALITIES[G.persKey].name;
@@ -1070,12 +1105,25 @@ function tick(forceDt){
   buildArena2();
   $('loading').style.display='none';
   if(AUTO){
-    G.bestAtStart = loadRecords().best || 0;
-    G.persKey = Q.get('pers') || 'balanced';
-    $('ai-name').textContent = PERSONALITIES[G.persKey].name;
-    $('start').style.display='none'; G.phase='play'; AI.alive=true;
-  } else { showRecords(); $('start').style.display='flex'; }
-  window.__game = { G, startWave, doSummon, doGamble, doMerge, spawnUnit, moveUnit, UNITS, tilePos, trackTheta, trackPoint, camera, THREE, tick, enemyZone, unitZones, sectorFull, dmgMul, zoneCovered, dangerZoneSet, aiPriorityZones, togglePing, updateZoneStrip, get prep(){ return { pending: prepPending, t: prepT, boss: prepBoss }; } };
+    const saved = loadRun();
+    if(saved){ restoreRun(saved); }
+    else{
+      G.bestAtStart = loadRecords().best || 0;
+      G.persKey = Q.get('pers') || 'balanced';
+      $('ai-name').textContent = PERSONALITIES[G.persKey].name;
+      $('start').style.display='none'; G.phase='play'; AI.alive=true;
+    }
+  } else {
+    showRecords(); $('start').style.display='flex';
+    const saved = loadRun();
+    if(saved){
+      const rb = $('btn-resume');
+      rb.style.display='block';
+      rb.textContent = `▶ 이어하기 — 웨이브 ${saved.wave} 클리어 지점 (공유 생명 ${saved.lives})`;
+      rb.onclick = ()=>{ AudioMan.resume(); AudioMan.play('click',0.5); restoreRun(saved); };
+    }
+  }
+  window.__game = { G, startWave, saveRun, loadRun, clearRun, restoreRun, doSummon, doGamble, doMerge, spawnUnit, moveUnit, UNITS, tilePos, trackTheta, trackPoint, camera, THREE, tick, enemyZone, unitZones, sectorFull, dmgMul, zoneCovered, dangerZoneSet, aiPriorityZones, togglePing, updateZoneStrip, get prep(){ return { pending: prepPending, t: prepT, boss: prepBoss }; } };
   function loop(){ requestAnimationFrame(loop); tick(); }
   setInterval(()=>{ if(performance.now()-lastTickAt > 200) tick(); }, 200);
   loop();
