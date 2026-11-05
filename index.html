@@ -119,6 +119,8 @@
     #sel-info{left:8px;right:8px;bottom:128px;max-width:none;font-size:12px;}
     #fp{bottom:128px;}
   }
+  #meta-shop.shop-flash{outline:2px solid var(--gold);outline-offset:4px;border-radius:10px;animation:shopPulse .6s ease-in-out 3;}
+  @keyframes shopPulse{50%{outline-color:rgba(255,215,102,.1);}}
 </style>
 </head>
 <body>
@@ -192,6 +194,7 @@
   <div class="card panel"><h1 id="over-title">게임 오버</h1><h2 id="over-sub"></h2>
     <div id="over-stats"></div><div id="over-record"></div>
     <button class="primary" id="btn-retry" style="width:100%;padding:12px;font-size:17px;">다시 하기</button>
+    <button id="btn-over-shop" style="width:100%;padding:11px;font-size:15px;margin-top:8px;">💎 강화 상점 보기 (획득 젬으로 영구 강화)</button>
   </div>
 </div>
 
