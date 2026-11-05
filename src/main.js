@@ -199,8 +199,11 @@ function togglePing(z){
   AudioMan.resume();
   if(G.pings.has(z)){ G.pings.delete(z); G.pingSrc.delete(z); log('구역 핑을 해제했습니다.', 'sys'); AudioMan.play('click', 0.4); }
   else {
-    G.pings.add(z); G.pingSrc.set(z, 'user'); AudioMan.play('click', 0.6, 1.3);
     const name = (ZONE_TRAVEL.find(([zz])=>zz===z)||[])[1] || ('구역'+(z+1));
+    // 이미 커버됐고 적도 없는 구역은 핑이 즉시 자동 해제되므로, 조용한 무반응 대신 사유를 알림
+    const enemyHere = G.enemies.some(e=>!e.dead && enemyZone(e)===z);
+    if(!enemyHere && zoneCovered(z)){ log(`${name} 구역은 이미 안전하게 커버되고 있어 핑이 필요 없습니다.`, 'sys'); AudioMan.play('gamble_fail', 0.3); updateZoneStrip(); return; }
+    G.pings.add(z); G.pingSrc.set(z, 'user'); AudioMan.play('click', 0.6, 1.3);
     log(`${name} 구역에 핑! AI 파트너가 그 구역 보강을 우선합니다.`, 'sys');
     if(AI.alive) aiSay('ping');
   }
