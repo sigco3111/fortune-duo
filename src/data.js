@@ -1,6 +1,6 @@
 // ===== 포춘 듀오 게임 데이터 =====
-export const TIER_NAMES = ['일반','고급','희귀','영웅','전설'];
-export const TIER_COLORS = [0xbfd4c0, 0x6fc3ff, 0xc59bff, 0xffd766, 0xff8a5c];
+export const TIER_NAMES = ['일반','고급','희귀','영웅','전설','초월'];
+export const TIER_COLORS = [0xbfd4c0, 0x6fc3ff, 0xc59bff, 0xffd766, 0xff8a5c, 0xf8f4ff];
 
 // 공격 애니메이션 후보(모델별 실제 클립명 기반)
 const KAY_ATK = {
@@ -30,10 +30,12 @@ export const UNITS = [
   { id:'cleric',   name:'클레릭',   tier:4, model:'2-Cleric.gltf',     pack:'rpg', kind:'magic',  dmg:16, range:5.2, interval:0.9,  h:1.7, slow:0.4, slowDur:1.6, proj:'holy' },
   { id:'assassin', name:'암살자',   tier:5, model:'8-Rogue_Hooded.glb',pack:'kay', kind:'melee',  dmg:26, range:2.3, interval:0.5,  h:1.7, crit:0.25, critMul:3 },
   { id:'wizard',   name:'위저드',   tier:5, model:'10-Wizard.gltf',     pack:'rpg', kind:'magic',  dmg:46, range:6.2, interval:1.85, h:1.8, splash:1.9, proj:'orbBig' },
+  { id:'slayer',   name:'초월 암살자', tier:6, model:'8-Rogue_Hooded.glb',pack:'kay', kind:'melee',  dmg:52, range:2.4, interval:0.42, h:1.85, crit:0.3, critMul:3 },
+  { id:'archmage', name:'초월 위저드', tier:6, model:'10-Wizard.gltf',     pack:'rpg', kind:'magic',  dmg:88, range:6.4, interval:1.6,  h:1.95, splash:2.2, proj:'orbBig' },
 ];
 export const UNITS_BY_TIER = [null,
   UNITS.filter(u=>u.tier===1), UNITS.filter(u=>u.tier===2), UNITS.filter(u=>u.tier===3),
-  UNITS.filter(u=>u.tier===4), UNITS.filter(u=>u.tier===5)];
+  UNITS.filter(u=>u.tier===4), UNITS.filter(u=>u.tier===5), UNITS.filter(u=>u.tier===6)];
 export const ATTACK_ANIMS = {...KAY_ATK, ...RPG_ATK};
 
 // 행운 소환 확률 (T2~T5, 실패)
