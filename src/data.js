@@ -73,7 +73,7 @@ export const PERSONALITIES = {
   balanced:{ icon:'균', name:'듬직한 균형파', desc:'소환·합성·도박을 고르게' },
   attacker:{ icon:'공', name:'성급한 공격파', desc:'골드를 모으지 않고 바로바로 투자' },
   saver:   { icon:'저', name:'짠돌이 저축파', desc:'모았다가 고티어 도박에 올인' },
-  merger:  { icon:'합', name:'합성 장인', desc:'합성 최우선, 판을 꽉 채움' },
+  merger:  { icon:'합', name:'합성 장인', desc:'합성 최우선, 같은 구역에 재료 모음' },
   support: { icon:'지', name:'든든한 지원파', desc:'배치 최적화와 방어 중시' },
   adaptive:{ icon:'적', name:'눈치 빠른 적응파', desc:'상황 보고 전략을 바꿈' },
 };
