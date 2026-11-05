@@ -202,6 +202,12 @@ function togglePing(z){
     if(AI.alive) aiSay('ping');
   }
   updateZoneStrip();
+  const boss = G.enemies.find(e=>e.boss && !e.dead);
+  if(boss){
+    $('bossbar').style.display='flex';
+    $('bossbar-name').textContent = boss.spec.name || '보스';
+    $('bossbar-fill').style.width = Math.max(0, boss.hp/boss.maxHp*100) + '%';
+  } else $('bossbar').style.display='none';
 }
 // 배치 우선순위 구역: 플레이어·지원파·적응파는 핑 포함, 그 외 AI는 위험 구역만
 function pickPriorityZones(side){
@@ -544,6 +550,7 @@ function damageEnemy(e, dmg, creditSide, crit=false, slow=null){
   if(e.dead) return;
   e.hp -= dmg;
   G.dbg.hits++;
+  G.dmgDealt = (G.dmgDealt||0) + dmg;
   dmgNumBatched(e, dmg, crit);
   if(slow){ e.slowT = Math.max(e.slowT, slow.dur); e.slowF = slow.f; }
   if(e.hp<=0){
@@ -554,6 +561,7 @@ function damageEnemy(e, dmg, creditSide, crit=false, slow=null){
     if(deathClip){ const a=e.anim.mixer.clipAction(deathClip); a.reset(); a.setLoop(THREE.LoopOnce,1); a.clampWhenFinished=true; a.play(); }
     burst(e.group.position.x, 0.8, e.group.position.z, e.boss?0xff8a5c:0xa0e8ff, e.boss?5:2.6);
     if(e.hpBar) e.hpBar.visible=false;
+    if(e.boss){ dmgNum(e.group.position.x, 3.4, e.group.position.z, '보스 처치!', '#ff8a5c', true); ring(e.group.position.x, e.group.position.z, 0xff8a5c); }
     const S = G.sides[creditSide] || G.sides[-1];
     const gold = e.boss ? 50 : waveSpec(G.wave).killGold;
     S.gold += gold; G.goldEarned += gold; G.kills++;
@@ -816,12 +824,15 @@ function showRecords(){
 // ---------- 게임 오버 ----------
 function gameOver(){
   G.phase='over';
+  const prevBest = (G.bestAtStart != null) ? G.bestAtStart : 0;
   const r = loadRecords(); r.games++; localStorage.setItem('fd_records_v1', JSON.stringify(r));
   saveRecords();
   AudioMan.play('defeat', 0.9); AudioMan.bgmStop();
   $('over-title').textContent = '성문이 함락됐습니다';
   $('over-sub').textContent = `${PERSONALITIES[G.persKey].name}와 함께 웨이브 ${G.wave}까지 방어`;
-  $('over-stats').innerHTML = `<div>도달 웨이브<b>${G.wave}</b></div><div>처치 수<b>${G.kills}</b></div><div>획득 골드<b>${G.goldEarned}</b></div><div>최고 기록<b>${loadRecords().best}</b></div>`;
+  const aiS = G.sides[1];
+  $('over-stats').innerHTML = `<div>도달 웨이브<b>${G.wave}</b></div><div>처치 수<b>${G.kills}</b></div><div>총 피해량<b>${Math.round(G.dmgDealt||0).toLocaleString()}</b></div><div>획득 골드<b>${G.goldEarned}</b></div><div>AI 최종 유닛<b>${aiS.units.length}기</b></div><div>최고 기록<b>${loadRecords().best}</b></div>`;
+  $('over-record').textContent = (G.wave > prevBest && G.wave > 0) ? '🏆 신기록 달성!' : '';
   $('over').style.display='flex'; updateHUD();
 }
 
@@ -953,6 +964,7 @@ let selPers = 'random';
 })();
 $('btn-start').onclick = ()=>{
   AudioMan.resume();
+  G.bestAtStart = loadRecords().best || 0;
   G.persKey = selPers==='random' ? pick(['balanced','attacker','saver','merger','support','adaptive']) : selPers;
   $('ai-name').textContent = PERSONALITIES[G.persKey].name;
   $('start').style.display='none';
@@ -1023,6 +1035,7 @@ function tick(forceDt){
   buildArena2();
   $('loading').style.display='none';
   if(AUTO){
+    G.bestAtStart = loadRecords().best || 0;
     G.persKey = Q.get('pers') || 'balanced';
     $('ai-name').textContent = PERSONALITIES[G.persKey].name;
     $('start').style.display='none'; G.phase='play'; AI.alive=true;
