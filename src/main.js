@@ -547,8 +547,8 @@ function startWave(){
       spawnQueue.push({ boss:false, spec:MONSTERS[t][Math.floor(wrnd()*MONSTERS[t].length)] });
     }
     log(`웨이브 ${G.wave} 시작!`, 'sys');
-    if(G.wave>=10 && G.wave%10===0 && AI.alive) aiSay('milestone');
   }
+  if(G.wave>=10 && G.wave%10===0 && AI.alive) aiSay('milestone');
   spawnT = 0; waveActive = true;
   updateHUD();
 }
