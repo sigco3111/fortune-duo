@@ -4,7 +4,7 @@ import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import * as SkeletonUtils from '../vendor/SkeletonUtils.js';
 import { TIER_NAMES, TIER_COLORS, UNITS, UNITS_BY_TIER, ATTACK_ANIMS, GAMBLE_TABLE,
          MONSTERS, BOSSES, waveSpec, PERSONALITIES, AI_LINES,
-         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r29c';
+         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r30';
 
 const Q = new URLSearchParams(location.search);
 const AUTO = Q.get('auto') === '1';
@@ -664,6 +664,8 @@ function spawnEnemy(spec, waveN, isBoss=false, tier=0){
   const moveAnim = spec.fly ? ['Flying','Walk'] : ['Walk','Flying','Idle'];
   const anim = makeAnimator(inst, moveAnim);
   const maxHp = Math.round(Math.round(waveSpec(waveN).hpBase * (spec.hp||1)) * (G.ch.includes('iron')?1.3:1));
+  G.dbg.hpSpawned = (G.dbg.hpSpawned||0) + maxHp;
+  G.dbg.hpByWave = G.dbg.hpByWave || {}; G.dbg.hpByWave[waveN] = (G.dbg.hpByWave[waveN]||0) + maxHp;
   const radial = (rnd()-0.5)*0.9;
   const e = { group:inst.group, inner:inst.inner, anim, spec, hp:maxHp, maxHp, tier,
     t:0, speed:(spec.sp||1)*(0.92+rnd()*0.16)*(G.ch.includes('blitz')?1.25:1), slowT:0, slowF:1, dead:false, boss:isBoss,
@@ -740,6 +742,8 @@ function damageEnemy(e, dmg, creditSide, crit=false, slow=null, killer=null){
   e.hp -= dmg;
   G.dbg.hits++;
   G.dmgDealt = (G.dmgDealt||0) + dmg;
+  G.dbg.dmgSide = G.dbg.dmgSide || { '-1':0, '1':0 };
+  G.dbg.dmgSide[String(creditSide)] = (G.dbg.dmgSide[String(creditSide)]||0) + dmg;
   dmgNumBatched(e, dmg, crit);
   if(slow){ e.slowT = Math.max(e.slowT, slow.dur); e.slowF = slow.f; }
   if(e.hp<=0){
