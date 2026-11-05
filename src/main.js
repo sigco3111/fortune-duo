@@ -4,7 +4,7 @@ import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import * as SkeletonUtils from '../vendor/SkeletonUtils.js';
 import { TIER_NAMES, TIER_COLORS, UNITS, UNITS_BY_TIER, ATTACK_ANIMS, GAMBLE_TABLE,
          MONSTERS, BOSSES, waveSpec, PERSONALITIES, AI_LINES,
-         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js';
+         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r29';
 
 const Q = new URLSearchParams(location.search);
 const AUTO = Q.get('auto') === '1';
