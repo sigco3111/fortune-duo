@@ -4,7 +4,7 @@ import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import * as SkeletonUtils from '../vendor/SkeletonUtils.js';
 import { TIER_NAMES, TIER_COLORS, UNITS, UNITS_BY_TIER, ATTACK_ANIMS, GAMBLE_TABLE,
          MONSTERS, BOSSES, waveSpec, PERSONALITIES, AI_LINES,
-         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r30';
+         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r31';
 
 const Q = new URLSearchParams(location.search);
 const AUTO = Q.get('auto') === '1';
@@ -559,7 +559,9 @@ function chooseTile(side, def, prefRow){
 
 // 배치 불가(전열 만석): 골드 차감 없이 실패 회계만
 function placeFail(side, what){
-  const S = G.sides[side]; S.spawnFails = (S.spawnFails||0)+1;
+  const S = G.sides[side];
+  // 배치 실패(전열 만석 등)는 일시적 상황이고 골드도 차감되지 않으므로 소환 잠금 카운터에 넣지 않는다
+  // (잠금은 모델 누락 spawnFail 전용) - 전열이 차면 AI가 영구적으로 소환·도박을 멈추는 교착 방지
   if(side<0) log(`${what} 불가: 전열(가장 안쪽 줄)이 가득 차 근접 유닛을 배치할 수 없습니다. 합성으로 자리를 비우거나 전열 유닛을 옮겨 주세요.`, 'sys');
   updateHUD();
 }
@@ -573,7 +575,12 @@ function doSummon(side){
   const S = G.sides[side]; const cost = summonCost(side);
   if(S.gold < cost) return false;
   const free = freeTiles(side); if(!free.length) return false;
-  const def = pick(UNITS_BY_TIER[1]);
+  let def = pick(UNITS_BY_TIER[1]);
+  // 전열 만석 시 근접은 배치 불가: 비근접으로 전환해 빈 시도 반복(스핀) 방지
+  if(def.kind==='melee' && !free.some(i=>i<TILE_SECTORS)){
+    const nm = UNITS_BY_TIER[1].filter(d=>d.kind!=='melee');
+    if(nm.length) def = pick(nm);
+  }
   if(!MODELS['u_'+def.id]){ spawnFail(side, '소환'); return false; }
   const tile = chooseTile(side, def, side>0 ? aiRowPref() : null);
   if(tile<0){ placeFail(side, '소환'); return false; }
@@ -596,7 +603,11 @@ function doGamble(side){
   const res = rollGamble();
   AudioMan.play('gamble', side<0?0.9:0.4);
   if(res.tier===0){ S.gold -= cost; if(side<0) AudioMan.play('gamble_fail', 0.8); updateHUD(); return { tier:0 }; }
-  const def = pick(UNITS_BY_TIER[res.tier]);
+  let def = pick(UNITS_BY_TIER[res.tier]);
+  if(def.kind==='melee' && !free.some(i=>i<TILE_SECTORS)){
+    const nm = UNITS_BY_TIER[res.tier].filter(d=>d.kind!=='melee');
+    if(nm.length) def = pick(nm);
+  }
   if(!MODELS['u_'+def.id]){ spawnFail(side, '행운 소환'); return { tier:0, spawnFail:true }; }
   const tile = chooseTile(side, def, side>0 ? aiRowPref() : null);
   if(tile<0){ placeFail(side, '행운 소환'); return { tier:0, spawnFail:true }; }
@@ -1047,6 +1058,10 @@ function updateHUD(){
 
 // ---------- 기록 ----------
 G.dbg = { hits:0, dmgShown:0, burstShown:0, burstSkipped:0 };
+G.dbg.spawnFails = s => (G.sides[s].spawnFails||0);
+G.dbg.spawnAt = (s, defId, tile) => { const d = UNITS.find(u=>u.id===defId); return d ? !!spawnUnit(s, d, tile) : false; };
+G.dbg.summon = s => !!doSummon(s);
+G.dbg.gamble = s => doGamble(s);
 function loadRecords(){ try{ return JSON.parse(localStorage.getItem('fd_records_v1')) || { best:0, games:0, per:{} }; }catch(e){ return { best:0, games:0, per:{} }; } }
 function saveRecords(){
   const r = loadRecords();
