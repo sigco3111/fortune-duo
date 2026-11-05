@@ -767,6 +767,16 @@ function aiRepos(){
 }
 function aiTick(){
   if(!AI.alive || G.phase!=='play' || G.paused) return;
+  // 위험 구역이 6초 이상 지속되면 플레이어에게 도움 요청 핑 (30초 쿨다운)
+  AI.askT = Math.max(0, (AI.askT||0) - 1);
+  const dzNow = dangerZoneSet();
+  AI.dangerT = AI.dangerT || {};
+  for(const z of dzNow) AI.dangerT[z] = (AI.dangerT[z]||0) + 1;
+  for(const k of Object.keys(AI.dangerT)) if(!dzNow.has(+k)) delete AI.dangerT[k];
+  if(AI.askT<=0 && waveActive){
+    const z = Object.keys(AI.dangerT).map(Number).find(z2=>AI.dangerT[z2]>=6 && !G.pings.has(z2));
+    if(z!=null){ G.pings.add(z); updateZoneStrip(); aiSay('askHelp'); AI.askT=30; }
+  }
   const S = G.sides[1]; const P = aiParams();
   if(findTriple(1) && S.units.length >= (P.mergeAt||0)){
     const d = doMerge(1);
