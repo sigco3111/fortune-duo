@@ -860,9 +860,27 @@ function saveRun(){
     localStorage.setItem(RUN_KEY, JSON.stringify(s));
   }catch(e){}
 }
-function loadRun(){ try{ const s=JSON.parse(localStorage.getItem(RUN_KEY)); return (s && s.v===1 && s.wave>0 && PERSONALITIES[s.persKey]) ? s : null; }catch(e){ return null; } }
+function loadRun(){
+  try{
+    const s = JSON.parse(localStorage.getItem(RUN_KEY));
+    if(!s || s.v!==1 || !Number.isInteger(s.wave) || s.wave<=0 || !PERSONALITIES[s.persKey]) return null;
+    if(!Number.isInteger(s.lives) || s.lives<=0) return null;
+    for(const k of ['-1','1']){
+      const ss = s.sides && s.sides[k];
+      if(!ss || typeof ss.gold!=='number' || !Array.isArray(ss.units)) return null;
+      for(const su of ss.units){
+        if(!su || !UNITS.some(d=>d.id===su.id) || !Number.isInteger(su.tile) || su.tile<0 || su.tile>=TILES_PER_SIDE) return null;
+      }
+    }
+    return s;
+  }catch(e){ return null; }
+}
 function clearRun(){ try{ localStorage.removeItem(RUN_KEY); }catch(e){} }
 function restoreRun(s){
+  try{ restoreRunInner(s); }
+  catch(e){ clearRun(); try{ [...G.sides[-1].units].forEach(removeUnit); [...G.sides[1].units].forEach(removeUnit); }catch(e2){} location.reload(); }
+}
+function restoreRunInner(s){
   clearRun();
   G.bestAtStart = loadRecords().best || 0;
   G.persKey = s.persKey; $('ai-name').textContent = PERSONALITIES[s.persKey].name;
