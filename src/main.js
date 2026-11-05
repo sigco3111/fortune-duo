@@ -184,17 +184,49 @@ function dangerZoneSet(){
   for(const e of G.enemies){ if(e.dead) continue; const z = enemyZone(e); if(!zoneCovered(z)) dz.add(z); }
   return dz;
 }
+// AI 우선 보강 구역 = 위험 구역 ∪ 플레이어 핑
+function aiPriorityZones(){
+  const dz = dangerZoneSet();
+  for(const z of G.pings) dz.add(z);
+  return dz;
+}
+// 플레이어 구역 핑 토글: 지원파·적응파 AI가 우선 대응
+function togglePing(z){
+  if(G.phase!=='play') return;
+  AudioMan.resume();
+  if(G.pings.has(z)){ G.pings.delete(z); log('구역 핑을 해제했습니다.', 'sys'); AudioMan.play('click', 0.4); }
+  else {
+    G.pings.add(z); AudioMan.play('click', 0.6, 1.3);
+    const name = (ZONE_TRAVEL.find(([zz])=>zz===z)||[])[1] || ('구역'+(z+1));
+    log(`${name} 구역에 핑! AI 파트너가 그 구역 보강을 우선합니다.`, 'sys');
+    if(AI.alive) aiSay('ping');
+  }
+  updateZoneStrip();
+}
+// 배치 우선순위 구역: 플레이어·지원파·적응파는 핑 포함, 그 외 AI는 위험 구역만
+function pickPriorityZones(side){
+  if(side<0 || G.persKey==='support' || G.persKey==='adaptive') return aiPriorityZones();
+  return dangerZoneSet();
+}
 // 진행 순서(성문 다음부터): N1..N3, S1..S6, N4..N6
 const ZONE_TRAVEL = [[5,'N1'],[4,'N2'],[3,'N3'],[2,'S1'],[1,'S2'],[0,'S3'],[11,'S4'],[10,'S5'],[9,'S6'],[8,'N4'],[7,'N5'],[6,'N6']];
 function updateZoneStrip(){
   const el = $('zone-strip'); if(!el) return;
   if(!el.children.length){
-    for(const [z,name] of ZONE_TRAVEL){ const i = document.createElement('i'); i.title = name+' 구역'; el.appendChild(i); }
+    for(const [z,name] of ZONE_TRAVEL){
+      const i = document.createElement('i'); i.title = name+' 구역 — 눌러서 보강 핑';
+      i.addEventListener('pointerdown', ev=>{ ev.preventDefault(); togglePing(z); });
+      el.appendChild(i);
+    }
   }
   const enemyZones = new Set(); for(const e of G.enemies){ if(!e.dead) enemyZones.add(enemyZone(e)); }
+  // 핑 자동 해제: 커버가 확보되고 적도 없으면 조용히 해제
+  for(const z of [...G.pings]){ if(!enemyZones.has(z) && zoneCovered(z)) G.pings.delete(z); }
   ZONE_TRAVEL.forEach(([z], k)=>{
     const dot = el.children[k];
-    dot.className = enemyZones.has(z) ? (zoneCovered(z) ? 'cov' : 'danger') : '';
+    let cls = enemyZones.has(z) ? (zoneCovered(z) ? 'cov' : 'danger') : '';
+    if(G.pings.has(z)) cls = (cls ? cls+' ' : '') + 'pinged';
+    dot.className = cls;
   });
 }
 // 유닛의 담당 구역(우선 공격): 후열만 3구역, 전열·중열은 자기 구역
@@ -214,11 +246,11 @@ function buildTiles(){
   for (const s of [-1,1]) for (let i=0;i<TILES_PER_SIDE;i++){
     const p = tilePos(s,i);
     const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: rowCol[s][p.row], transparent:true, opacity:0.6 }));
-    m.position.set(p.x, 0.08, p.z); m.userData = { side:s, idx:i };
+    m.position.set(p.x, 0.08, p.z); m.userData = { side:s, idx:i, baseColor: rowCol[s][p.row] };
     scene.add(m); tileMeshes[s].push(m);
   }
 }
-function flashTile(side, idx, color){ const m = tileMeshes[side][idx]; if(!m) return; m.material.color.setHex(color); setTimeout(()=>m.material.color.setHex(side<0?0x4a6fb0:0xb06a4a), 450); }
+function flashTile(side, idx, color){ const m = tileMeshes[side][idx]; if(!m) return; m.material.color.setHex(color); setTimeout(()=>m.material.color.setHex(m.userData.baseColor), 450); }
 
 // ---------- 이펙트 ----------
 const fxPool = [];
@@ -287,7 +319,7 @@ function burstCombat(x, y, z, color, spread, tgt){
 }
 
 // ---------- 게임 상태 ----------
-const G = { phase:'boot', wave:0, lives:START_LIVES, paused:false, speed:1, sides:{}, enemies:[], projectiles:[], kills:0, goldEarned:0, persKey:'balanced' };
+const G = { phase:'boot', wave:0, lives:START_LIVES, paused:false, speed:1, sides:{}, enemies:[], projectiles:[], kills:0, goldEarned:0, persKey:'balanced', pings:new Set() };
 function newSide(side){ return { side, gold:START_GOLD, summons:0, units:[] }; }
 G.sides[-1]=newSide(-1); G.sides[1]=newSide(1);
 const summonCost = s => SUMMON_BASE + G.sides[s].summons * SUMMON_STEP;
@@ -342,7 +374,7 @@ function chooseTile(side, def, prefRow){
   if(def.kind==='melee'){
     let front = free.filter(i => i < TILE_SECTORS);
     if(!front.length) return -1;
-    const dz = dangerZoneSet();
+    const dz = pickPriorityZones(side);
     if(dz.size){ const cover = front.filter(i => dz.has(zoneOfTile(side, i % TILE_SECTORS))); if(cover.length) front = cover; }
     const empt = front.filter(emptySector);
     return pick(empt.length ? empt : front);
@@ -350,8 +382,8 @@ function chooseTile(side, def, prefRow){
   const row = prefRow != null ? prefRow : (def.kind==='ranged' ? 2 : 1);
   let pool = free.filter(i => Math.floor(i/TILE_SECTORS) === row);
   if(!pool.length) pool = free;
-  // 적이 지나는데 커버가 없는 위험 구역 담당 타일 우선 (AI의 약한 구역 보강)
-  const dz = dangerZoneSet();
+  // 적이 지나는데 커버가 없는 위험 구역 담당 타일 우선 (AI의 약한 구역 보강, 핑 반영)
+  const dz = pickPriorityZones(side);
   if(dz.size){ const cover = pool.filter(i => dz.has(zoneOfTile(side, i % TILE_SECTORS))); if(cover.length) pool = cover; }
   const empt = pool.filter(emptySector);
   return pick(empt.length ? empt : pool);
@@ -969,9 +1001,8 @@ function tick(forceDt){
     $('ai-name').textContent = PERSONALITIES[G.persKey].name;
     $('start').style.display='none'; G.phase='play'; AI.alive=true;
   } else { showRecords(); $('start').style.display='flex'; }
-  window.__game = { G, startWave, doSummon, doGamble, doMerge, spawnUnit, moveUnit, UNITS, tilePos, trackTheta, trackPoint, camera, THREE, tick, enemyZone, unitZones, sectorFull, dmgMul, zoneCovered, dangerZoneSet, updateZoneStrip, get prep(){ return { pending: prepPending, t: prepT, boss: prepBoss }; } };
+  window.__game = { G, startWave, doSummon, doGamble, doMerge, spawnUnit, moveUnit, UNITS, tilePos, trackTheta, trackPoint, camera, THREE, tick, enemyZone, unitZones, sectorFull, dmgMul, zoneCovered, dangerZoneSet, aiPriorityZones, togglePing, updateZoneStrip, get prep(){ return { pending: prepPending, t: prepT, boss: prepBoss }; } };
   function loop(){ requestAnimationFrame(loop); tick(); }
   setInterval(()=>{ if(performance.now()-lastTickAt > 200) tick(); }, 200);
   loop();
 })();
-
