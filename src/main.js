@@ -197,9 +197,9 @@ function aiPriorityZones(){
 function togglePing(z){
   if(G.phase!=='play') return;
   AudioMan.resume();
-  if(G.pings.has(z)){ G.pings.delete(z); log('구역 핑을 해제했습니다.', 'sys'); AudioMan.play('click', 0.4); }
+  if(G.pings.has(z)){ G.pings.delete(z); G.pingSrc.delete(z); log('구역 핑을 해제했습니다.', 'sys'); AudioMan.play('click', 0.4); }
   else {
-    G.pings.add(z); AudioMan.play('click', 0.6, 1.3);
+    G.pings.add(z); G.pingSrc.set(z, 'user'); AudioMan.play('click', 0.6, 1.3);
     const name = (ZONE_TRAVEL.find(([zz])=>zz===z)||[])[1] || ('구역'+(z+1));
     log(`${name} 구역에 핑! AI 파트너가 그 구역 보강을 우선합니다.`, 'sys');
     if(AI.alive) aiSay('ping');
@@ -224,7 +224,7 @@ function updateZoneStrip(){
   }
   const enemyZones = new Set(); for(const e of G.enemies){ if(!e.dead) enemyZones.add(enemyZone(e)); }
   // 핑 자동 해제: 커버가 확보되고 적도 없으면 조용히 해제
-  for(const z of [...G.pings]){ if(!enemyZones.has(z) && zoneCovered(z)) G.pings.delete(z); }
+  for(const z of [...G.pings]){ if(!enemyZones.has(z) && zoneCovered(z)){ G.pings.delete(z); G.pingSrc.delete(z); } }
   // 구역 완성(전·중·후열 충족) 타일 강조
   for(const side of [-1,1]) for(let sec=0; sec<TILE_SECTORS; sec++){
     const full = sectorFull(side, sec);
@@ -237,7 +237,7 @@ function updateZoneStrip(){
   ZONE_TRAVEL.forEach(([z], k)=>{
     const dot = el.children[k];
     let cls = enemyZones.has(z) ? (zoneCovered(z) ? 'cov' : 'danger') : '';
-    if(G.pings.has(z)) cls = (cls ? cls+' ' : '') + 'pinged';
+    if(G.pings.has(z)) cls = (cls ? cls+' ' : '') + (G.pingSrc.get(z)==='ai' ? 'asked' : 'pinged');
     dot.className = cls;
   });
 }
@@ -331,7 +331,7 @@ function burstCombat(x, y, z, color, spread, tgt){
 }
 
 // ---------- 게임 상태 ----------
-const G = { phase:'boot', wave:0, lives:START_LIVES, paused:false, speed:1, sides:{}, enemies:[], projectiles:[], kills:0, goldEarned:0, persKey:'balanced', pings:new Set() };
+const G = { phase:'boot', wave:0, lives:START_LIVES, paused:false, speed:1, sides:{}, enemies:[], projectiles:[], kills:0, goldEarned:0, persKey:'balanced', pings:new Set(), pingSrc:new Map() };
 function newSide(side){ return { side, gold:START_GOLD, summons:0, units:[] }; }
 G.sides[-1]=newSide(-1); G.sides[1]=newSide(1);
 const summonCost = s => SUMMON_BASE + G.sides[s].summons * SUMMON_STEP;
@@ -778,7 +778,7 @@ function aiTick(){
   for(const k of Object.keys(AI.dangerT)) if(!dzNow.has(+k)) delete AI.dangerT[k];
   if(AI.askT<=0 && waveActive){
     const z = Object.keys(AI.dangerT).map(Number).find(z2=>AI.dangerT[z2]>=6 && !G.pings.has(z2));
-    if(z!=null){ G.pings.add(z); updateZoneStrip(); aiSay('askHelp'); AI.askT=30; }
+    if(z!=null){ G.pings.add(z); G.pingSrc.set(z, 'ai'); updateZoneStrip(); aiSay('askHelp'); AI.askT=30; }
   }
   const S = G.sides[1]; const P = aiParams();
   if(findTriple(1) && S.units.length >= (P.mergeAt||0)){
