@@ -910,12 +910,12 @@ function aiRepos(){
     if(dzP.has(zoneOfTile(1, i % TILE_SECTORS))) freePri.push({ i, row: Math.floor(i/TILE_SECTORS) });
   }
   if(!freePri.length) return;
-  const cand = S.units.filter(u=> !dzP.has(u.zone) && zoneCovered(u.zone) && !(u.reposBlockUntil && performance.now()<u.reposBlockUntil));
+  const cand = S.units.filter(u=> !dzP.has(u.zone) && zoneCovered(u.zone) && !(u.reposCdT>0));
   for(const u of cand){
     const wantRows = u.def.kind==='melee' ? [0] : u.def.kind==='ranged' ? [2,1] : [1,2];
     for(const wr of wantRows){
       const t = freePri.find(t=>t.row===wr);
-      if(t){ u.reposBlockUntil = performance.now()+15000; moveUnit(1, u.tile, t.i); return; }
+      if(t){ u.reposCdT = 15; moveUnit(1, u.tile, t.i); return; }
     }
   }
 }
@@ -925,6 +925,7 @@ function aiTick(){
   AI.askT = Math.max(0, (AI.askT||0) - 1);
   const dzNow = dangerZoneSet();
   AI.dangerT = AI.dangerT || {};
+  for(const s of [-1,1]) for(const u of G.sides[s].units) if(u.reposCdT>0) u.reposCdT--;
   for(const z of dzNow) AI.dangerT[z] = (AI.dangerT[z]||0) + 1;
   for(const k of Object.keys(AI.dangerT)) if(!dzNow.has(+k)) delete AI.dangerT[k];
   if(AI.askT<=0 && waveActive){
@@ -1283,11 +1284,11 @@ function autoTick(dt){
       if(sideUnitAt(-1,i)) continue;
       if(dzP.has(zoneOfTile(-1, i % TILE_SECTORS))) freePri.push(i);
     }
-    const cand = S.units.filter(u=> !dzP.has(u.zone) && zoneCovered(u.zone) && !(u.reposBlockUntil && performance.now()<u.reposBlockUntil));
+    const cand = S.units.filter(u=> !dzP.has(u.zone) && zoneCovered(u.zone) && !(u.reposCdT>0));
     for(const u of cand){
       const wantRows = u.def.kind==='melee' ? [0] : [1,2];
       const t = freePri.find(i=> wantRows.includes(Math.floor(i/TILE_SECTORS)));
-      if(t!=null){ u.reposBlockUntil = performance.now()+15000; moveUnit(-1, u.tile, t); return; }
+      if(t!=null){ u.reposCdT = 15; moveUnit(-1, u.tile, t); return; }
     }
   }
 }
