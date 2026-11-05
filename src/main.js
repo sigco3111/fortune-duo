@@ -4,7 +4,7 @@ import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import * as SkeletonUtils from '../vendor/SkeletonUtils.js';
 import { TIER_NAMES, TIER_COLORS, UNITS, UNITS_BY_TIER, ATTACK_ANIMS, GAMBLE_TABLE,
          MONSTERS, BOSSES, waveSpec, PERSONALITIES, AI_LINES,
-         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r29';
+         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r29c';
 
 const Q = new URLSearchParams(location.search);
 const AUTO = Q.get('auto') === '1';
@@ -457,7 +457,7 @@ function renderMetaShop(){
     AudioMan.resume(); AudioMan.play('click',0.5);
     renderMetaShop();
   });
-  el.querySelectorAll('.upg-buy:not(.spec-buy):not(.spec-eq)').forEach(b=>b.onclick=()=>{
+  el.querySelectorAll('.upg-buy:not(.spec-buy):not(.spec-eq):not(.bless-buy)').forEach(b=>b.onclick=()=>{
     const k=b.dataset.k, lv=META.upg[k], cost=UPG_COST(lv);
     if(lv>=UPG_DEFS[k].max || META.gems<cost) return;
     META.gems-=cost; META.upg[k]++; saveMeta();
