@@ -4,7 +4,7 @@ import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import * as SkeletonUtils from '../vendor/SkeletonUtils.js';
 import { TIER_NAMES, TIER_COLORS, UNITS, UNITS_BY_TIER, ATTACK_ANIMS, GAMBLE_TABLE,
          MONSTERS, BOSSES, waveSpec, PERSONALITIES, AI_LINES,
-         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r32';
+         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r33';
 
 const Q = new URLSearchParams(location.search);
 const AUTO = Q.get('auto') === '1';
@@ -366,20 +366,22 @@ function applyPendingBlessings(){
   log(`축복 발동: ${bl.map(k=>BLESS_DEFS[k]?BLESS_DEFS[k].name:k).join('·')} — 이번 판만 적용`, 'sys');
 }
 function zeroUpg(){ return { gold:0, lives:0, dmg:0, econ:0 }; }
+function defaultMeta(){ return { v:1, gems:0, upg:zeroUpg(), lastAward:null, specs:{ unlock:{breakthrough:false,guardian:false,fortune:false}, equipped:null }, mastery:{}, pendingBless:[] }; }
+function normalizeMeta(mm){
+  if(!mm || mm.v!==1 || typeof mm.gems!=='number' || !(mm.gems>=0) || !mm.upg) return null;
+  for(const k of Object.keys(UPG_DEFS)){ const v = mm.upg[k]; mm.upg[k] = Number.isInteger(v) ? Math.min(Math.max(v,0), UPG_DEFS[k].max) : 0; }
+  mm.lastAward = typeof mm.lastAward==='string' ? mm.lastAward : null;
+  const sp = (mm.specs && typeof mm.specs==='object') ? mm.specs : {};
+  mm.specs = { unlock:{}, equipped:null };
+  for(const k of Object.keys(SPEC_DEFS)) mm.specs.unlock[k] = !!(sp.unlock && sp.unlock[k]===true);
+  if(typeof sp.equipped==='string' && SPEC_DEFS[sp.equipped] && mm.specs.unlock[sp.equipped]) mm.specs.equipped = sp.equipped;
+  mm.mastery = (mm.mastery && typeof mm.mastery==='object' && !Array.isArray(mm.mastery)) ? mm.mastery : {};
+  mm.pendingBless = Array.isArray(mm.pendingBless) ? mm.pendingBless.filter(k=>k==='vitality'||k==='prosperity') : [];
+  return mm;
+}
 function loadMeta(){
-  try{
-    const mm = JSON.parse(localStorage.getItem(META_KEY));
-    if(!mm || mm.v!==1 || typeof mm.gems!=='number' || !(mm.gems>=0) || !mm.upg) throw 0;
-    for(const k of Object.keys(UPG_DEFS)){ const v = mm.upg[k]; mm.upg[k] = Number.isInteger(v) ? Math.min(Math.max(v,0), UPG_DEFS[k].max) : 0; }
-    mm.lastAward = typeof mm.lastAward==='string' ? mm.lastAward : null;
-    const sp = (mm.specs && typeof mm.specs==='object') ? mm.specs : {};
-    mm.specs = { unlock:{}, equipped:null };
-    for(const k of Object.keys(SPEC_DEFS)) mm.specs.unlock[k] = !!(sp.unlock && sp.unlock[k]===true);
-    if(typeof sp.equipped==='string' && SPEC_DEFS[sp.equipped] && mm.specs.unlock[sp.equipped]) mm.specs.equipped = sp.equipped;
-    mm.mastery = (mm.mastery && typeof mm.mastery==='object' && !Array.isArray(mm.mastery)) ? mm.mastery : {};
-    mm.pendingBless = Array.isArray(mm.pendingBless) ? mm.pendingBless.filter(k=>k==='vitality'||k==='prosperity') : [];
-    return mm;
-  }catch(e){ return { v:1, gems:0, upg:zeroUpg(), lastAward:null, specs:{ unlock:{breakthrough:false,guardian:false,fortune:false}, equipped:null }, mastery:{}, pendingBless:[] }; }
+  try{ return normalizeMeta(JSON.parse(localStorage.getItem(META_KEY))) || defaultMeta(); }
+  catch(e){ return defaultMeta(); }
 }
 const META = loadMeta();
 function saveMeta(){ try{ localStorage.setItem(META_KEY, JSON.stringify(META)); }catch(e){} }
@@ -595,7 +597,7 @@ function doSummon(side){
   updateHUD(); return def;
 }
 const GAMBLE_TABLE_FORTUNE = [ { tier:0, p:0.07, label:'꽝' }, { tier:2, p:0.44 }, { tier:3, p:0.27 }, { tier:4, p:0.16 }, { tier:5, p:0.06 } ];
-function rollGamble(){ const table = G.metaSpec==='fortune' ? GAMBLE_TABLE_FORTUNE : GAMBLE_TABLE; let r=rnd(), acc=0; for(const g of table){ acc+=g.p; if(r<acc) return g; } return table[0]; }
+function rollGamble(table){ table = table || (G.metaSpec==='fortune' ? GAMBLE_TABLE_FORTUNE : GAMBLE_TABLE); let r=rnd(), acc=0; for(const g of table){ acc+=g.p; if(r<acc) return g; } return table[0]; }
 function doGamble(side){
   const S = G.sides[side];
   const freeFirst = !!(G.freeGamble && G.freeGamble[side]);
@@ -603,7 +605,11 @@ function doGamble(side){
   if(S.gold < cost) return null;
   const free = freeTiles(side); if(!free.length) return null;
   if(freeFirst) G.freeGamble[side] = false;
-  const res = rollGamble();
+  // 전열 만석 시 근접뿐인 등급(현재 t3)은 배치 불가 — 롤 대상에서 제외해 헛도는 도박(무료 꽝 스핀) 방지
+  const frontFull = !free.some(i=>i<TILE_SECTORS);
+  let gtable = G.metaSpec==='fortune' ? GAMBLE_TABLE_FORTUNE : GAMBLE_TABLE;
+  if(frontFull) gtable = gtable.filter(g=>g.tier===0 || (UNITS_BY_TIER[g.tier]||[]).some(d=>d.kind!=='melee'));
+  const res = rollGamble(gtable);
   AudioMan.play('gamble', side<0?0.9:0.4);
   if(res.tier===0){ S.gold -= cost; if(side<0) AudioMan.play('gamble_fail', 0.8); updateHUD(); return { tier:0 }; }
   let def = pick(UNITS_BY_TIER[res.tier]);
@@ -998,7 +1004,9 @@ function aiTick(){
     if(z!=null){ G.pings.add(z); G.pingSrc.set(z, 'ai'); updateZoneStrip(); aiSay('askHelp'); AI.askT=30; }
   }
   const S = G.sides[1]; const P = aiParams();
-  if(findTriple(1) && S.units.length >= (P.mergeAt||0)){
+  // 골드가 도박 기준의 2배 이상 쌓이면(보드 포화로 소비 경로가 막힌 상태) 합성을 앞당겨 자리를 확보
+  const goldOverflow = S.gold >= 2*Math.max(GAMBLE_COST, P.gambleGold||0);
+  if(findTriple(1) && (S.units.length >= (P.mergeAt||0) || goldOverflow)){
     const d = doMerge(1);
     if(d){ if(d.tier>=4) aiSay('rare'); else aiSay('merge'); }
     return;
@@ -1042,7 +1050,7 @@ function updateHUD(){
       chip.textContent = t; chip.style.display='';
     } else chip.style.display='none';
   }
-  $('btn-summon').disabled = G.sides[-1].gold < summonCost(-1) || !freeTiles(-1).length || G.phase!=='play';
+  $('btn-summon').disabled = G.sides[-1].gold < summonCost(-1) || !freeTiles(-1).length || G.phase!=='play' || !(freeTiles(-1).some(i=>i<TILE_SECTORS) || UNITS_BY_TIER[1].some(d=>d.kind!=='melee'));
   if($('fp') && $('fp').style.display==='block') fpRender();
   $('btn-gamble').disabled = G.sides[-1].gold < GAMBLE_COST || !freeTiles(-1).length || G.phase!=='play';
   const triple = findTriple(-1);
@@ -1069,6 +1077,7 @@ G.dbg.spawnFails = s => (G.sides[s].spawnFails||0);
 G.dbg.setGold = (s,v) => { G.sides[s].gold = v; };
 G.dbg.spawnAt = (s, defId, tile) => { const d = UNITS.find(u=>u.id===defId); return d ? !!spawnUnit(s, d, tile) : false; };
 G.dbg.summon = s => !!doSummon(s);
+G.dbg.setRender = f => { G.dbg._renderOff = !f; };
 G.dbg.gamble = s => doGamble(s);
 function loadRecords(){ try{ return JSON.parse(localStorage.getItem('fd_records_v1')) || { best:0, games:0, per:{} }; }catch(e){ return { best:0, games:0, per:{} }; } }
 function saveRecords(){
@@ -1088,6 +1097,115 @@ function showRecords(){
     : '아직 기록이 없습니다. 첫 게임을 시작해 보세요!';
 }
 
+// ---------- 저장 안전장치: 자동 백업 · 내보내기/가져오기 · 초기화 ----------
+const BACKUP_KEY = 'fd_backup_v1';
+function validRecords(r){
+  if(!r || typeof r!=='object' || Array.isArray(r)) return false;
+  if(!Number.isInteger(r.best) || r.best<0 || r.best>100000) return false;
+  if(!Number.isInteger(r.games) || r.games<0 || r.games>1000000) return false;
+  if(r.per!=null){
+    if(typeof r.per!=='object' || Array.isArray(r.per)) return false;
+    for(const k of Object.keys(r.per)){ if(!PERSONALITIES[k] || !Number.isInteger(r.per[k]) || r.per[k]<0 || r.per[k]>100000) return false; }
+  }
+  if(r.ch!=null){
+    if(typeof r.ch!=='object' || Array.isArray(r.ch)) return false;
+    for(const k of Object.keys(r.ch)){ if(!CHALLENGES[k] || !Number.isInteger(r.ch[k]) || r.ch[k]<0 || r.ch[k]>100000) return false; }
+  }
+  return true;
+}
+// 마지막 정상 상태 스냅샷 (웨이브 클리어 저장·게임 오버 정산 직후 갱신)
+function backupSave(){
+  try{ localStorage.setItem(BACKUP_KEY, JSON.stringify({ v:1, at:new Date().toISOString(), records:loadRecords(), meta:META, run:loadRun() })); }catch(e){}
+}
+function loadBackup(){
+  try{
+    const b = JSON.parse(localStorage.getItem(BACKUP_KEY));
+    if(!b || b.v!==1 || !validRecords(b.records) || !normalizeMeta(JSON.parse(JSON.stringify(b.meta||null)))) return null;
+    if(b.run!=null && !validateRunData(b.run)) return null;
+    return b;
+  }catch(e){ return null; }
+}
+function applySaveData(records, meta, run){
+  localStorage.setItem('fd_records_v1', JSON.stringify(records));
+  Object.assign(META, normalizeMeta(JSON.parse(JSON.stringify(meta))) || defaultMeta());
+  saveMeta();
+  if(run) localStorage.setItem(RUN_KEY, JSON.stringify(run)); else clearRun();
+  try{ localStorage.removeItem(AWARD_KEY); }catch(e){}
+}
+function exportSave(){
+  return btoa(unescape(encodeURIComponent(JSON.stringify({ app:'fortune-duo', v:1, at:new Date().toISOString(), records:loadRecords(), meta:META, run:loadRun() }))));
+}
+function importSave(code){
+  let d;
+  try{ d = JSON.parse(decodeURIComponent(escape(atob(String(code).trim())))); }catch(e){ return { ok:false, msg:'코드를 읽을 수 없습니다. 복사가 잘못되지 않았는지 확인해 주세요.' }; }
+  if(!d || d.app!=='fortune-duo' || d.v!==1) return { ok:false, msg:'포춘 듀오 저장 코드가 아닙니다.' };
+  if(!validRecords(d.records)) return { ok:false, msg:'기록 데이터가 올바르지 않습니다.' };
+  const nm = normalizeMeta(JSON.parse(JSON.stringify(d.meta||null)));
+  if(!nm) return { ok:false, msg:'메타 데이터가 올바르지 않습니다.' };
+  if(d.run!=null && !validateRunData(d.run)) return { ok:false, msg:'이어하기 데이터가 올바르지 않습니다.' };
+  backupSave(); // 덮어쓰기 전 현재 상태를 백업 슬롯에 보존
+  applySaveData(d.records, d.meta, d.run || null);
+  return { ok:true, msg:'저장 데이터를 가져왔습니다. 새로고침합니다.' };
+}
+function restoreBackup(){
+  const b = loadBackup();
+  if(!b) return { ok:false, msg:'복구할 백업이 없습니다.' };
+  applySaveData(b.records, b.meta, b.run || null);
+  return { ok:true, msg:'백업 시점(' + (b.at||'알 수 없음') + ')으로 복구했습니다. 새로고침합니다.' };
+}
+function resetSave(){
+  backupSave(); // 초기화 전 자동 백업 — 백업 복구로 되돌릴 수 있음
+  try{ localStorage.removeItem('fd_records_v1'); localStorage.removeItem(META_KEY); clearRun(); localStorage.removeItem(AWARD_KEY); }catch(e){}
+}
+
+function setupDataPanel(){
+  const panel=$('data-panel'), code=$('data-code'), msg=$('data-msg'), info=$('data-info');
+  if(!panel) return;
+  const say=(t,bad)=>{ msg.textContent=t; msg.style.color=bad?'#ff8a5c':'#7dd3fc'; };
+  const refreshInfo=()=>{
+    const b=loadBackup();
+    info.textContent = b ? `자동 백업: ${b.at||'시간 미상'} (웨이브 ${b.records?.best??0} 최고 · 젬 ${b.meta?.gems??0})` : '자동 백업 없음 — 웨이브를 클리어하면 마지막 정상 상태가 자동 보관됩니다.';
+    $('btn-restore-backup').style.display = b ? 'block' : 'none';
+    // 손상 감지 안내: 원본 키는 있는데 파싱이 안 되는 경우
+    let corrupt=false;
+    try{ const raw=localStorage.getItem('fd_records_v1'); if(raw && !validRecords(JSON.parse(raw))) corrupt=true; }catch(e){ corrupt=true; }
+    try{ const raw=localStorage.getItem(META_KEY); if(raw && !normalizeMeta(JSON.parse(raw))) corrupt=true; }catch(e){ corrupt=true; }
+    if(corrupt) info.innerHTML += '<br><span style="color:#ff8a5c">⚠ 저장 데이터가 손상된 것으로 보입니다. 백업이 있다면 백업 복구를 눌러 주세요.</span>';
+  };
+  $('btn-data').onclick=()=>{ AudioMan.play('click',0.4); const open=panel.style.display!=='none'; panel.style.display=open?'none':'block'; if(!open){ code.style.display='none'; code.value=''; say(''); refreshInfo(); } };
+  $('btn-export').onclick=async()=>{
+    AudioMan.play('click',0.4);
+    code.style.display='block'; code.value=exportSave(); code.focus(); code.select();
+    let copied=false; try{ await navigator.clipboard.writeText(code.value); copied=true; }catch(e){ try{ document.execCommand('copy'); copied=true; }catch(e2){} }
+    say(copied?'저장 코드를 만들어 복사했습니다. 안전한 곳에 붙여넣어 보관하세요.':'저장 코드를 만들었습니다. 직접 복사해 보관하세요.');
+  };
+  $('btn-import').onclick=()=>{
+    AudioMan.play('click',0.4);
+    if(code.style.display==='none' || !code.value.trim()){ code.style.display='block'; code.value=''; code.focus(); say('붙여넣은 뒤 가져오기를 한 번 더 누르세요. 현재 데이터는 자동 백업됩니다.'); return; }
+    if($('btn-import').dataset.arm!=='1'){ $('btn-import').dataset.arm='1'; say('현재 저장을 덮어씁니다(직전 상태는 자동 백업). 확실하면 한 번 더 누르세요.'); return; }
+    $('btn-import').dataset.arm='';
+    const r=importSave(code.value);
+    say(r.msg, !r.ok);
+    if(r.ok) setTimeout(()=>location.reload(), 900);
+  };
+  $('btn-restore-backup').onclick=()=>{
+    AudioMan.play('click',0.4);
+    if($('btn-restore-backup').dataset.arm!=='1'){ $('btn-restore-backup').dataset.arm='1'; say('자동 백업 시점으로 되돌립니다. 확실하면 한 번 더 누르세요.'); return; }
+    $('btn-restore-backup').dataset.arm='';
+    const r=restoreBackup();
+    say(r.msg, !r.ok);
+    if(r.ok) setTimeout(()=>location.reload(), 900);
+  };
+  $('btn-reset').onclick=()=>{
+    AudioMan.play('click',0.4);
+    if($('btn-reset').dataset.arm!=='1'){ $('btn-reset').dataset.arm='1'; say('기록·젬·이어하기를 모두 지웁니다(직전 상태는 자동 백업되어 복구 가능). 확실하면 한 번 더 누르세요.', true); return; }
+    $('btn-reset').dataset.arm='';
+    resetSave();
+    say('모든 저장 데이터를 지웠습니다. 새로고침합니다.');
+    setTimeout(()=>location.reload(), 900);
+  };
+}
+
 // ---------- 진행 저장(이어하기): 웨이브 클리어 지점 스냅샷 ----------
 const RUN_KEY = 'fd_run_v1';
 function saveRun(){
@@ -1099,29 +1217,31 @@ function saveRun(){
       sides:{ '-1':{ gold:G.sides[-1].gold, carry:G.sides[-1].carry||0, summons:G.sides[-1].summons, units:G.sides[-1].units.map(u=>({id:u.def.id, tile:u.tile, lv:u.lv||1, kills:u.kills||0})) },
               '1':{ gold:G.sides[1].gold, carry:G.sides[1].carry||0, summons:G.sides[1].summons, units:G.sides[1].units.map(u=>({id:u.def.id, tile:u.tile, lv:u.lv||1, kills:u.kills||0})) } } };
     localStorage.setItem(RUN_KEY, JSON.stringify(s));
+    backupSave();
   }catch(e){}
 }
-function loadRun(){
-  try{
-    const s = JSON.parse(localStorage.getItem(RUN_KEY));
-    if(!s || s.v!==1 || !Number.isInteger(s.wave) || s.wave<=0 || !PERSONALITIES[s.persKey]) return null;
-    if(!Number.isInteger(s.lives) || s.lives<=0) return null;
-    if(s.spec!=null && !SPEC_DEFS[s.spec]) return null;
-    if(s.leakShield!=null && (!Number.isInteger(s.leakShield) || s.leakShield<0 || s.leakShield>3)) return null;
-    if(s.ch!=null && (!Array.isArray(s.ch) || s.ch.length>3 || !s.ch.every(k=>CHALLENGES[k]))) return null;
-    if(s.freeGamble!=null && typeof s.freeGamble!=='object') return null;
-    for(const k of ['-1','1']){
-      const ss = s.sides && s.sides[k];
-      if(!ss || typeof ss.gold!=='number' || !Array.isArray(ss.units)) return null;
-      if(ss.carry!=null && (typeof ss.carry!=='number' || !(ss.carry>=0) || ss.carry>1000)) return null;
-      for(const su of ss.units){
-        if(!su || !UNITS.some(d=>d.id===su.id) || !Number.isInteger(su.tile) || su.tile<0 || su.tile>=TILES_PER_SIDE) return null;
-        if(su.lv!=null && (!Number.isInteger(su.lv) || su.lv<1 || su.lv>5)) return null;
-        if(su.kills!=null && (!Number.isInteger(su.kills) || su.kills<0 || su.kills>100000)) return null;
-      }
+function validateRunData(s){
+  if(!s || s.v!==1 || !Number.isInteger(s.wave) || s.wave<=0 || !PERSONALITIES[s.persKey]) return null;
+  if(!Number.isInteger(s.lives) || s.lives<=0) return null;
+  if(s.spec!=null && !SPEC_DEFS[s.spec]) return null;
+  if(s.leakShield!=null && (!Number.isInteger(s.leakShield) || s.leakShield<0 || s.leakShield>3)) return null;
+  if(s.ch!=null && (!Array.isArray(s.ch) || s.ch.length>3 || !s.ch.every(k=>CHALLENGES[k]))) return null;
+  if(s.freeGamble!=null && typeof s.freeGamble!=='object') return null;
+  for(const k of ['-1','1']){
+    const ss = s.sides && s.sides[k];
+    if(!ss || typeof ss.gold!=='number' || !Array.isArray(ss.units)) return null;
+    if(ss.carry!=null && (typeof ss.carry!=='number' || !(ss.carry>=0) || ss.carry>1000)) return null;
+    for(const su of ss.units){
+      if(!su || !UNITS.some(d=>d.id===su.id) || !Number.isInteger(su.tile) || su.tile<0 || su.tile>=TILES_PER_SIDE) return null;
+      if(su.lv!=null && (!Number.isInteger(su.lv) || su.lv<1 || su.lv>5)) return null;
+      if(su.kills!=null && (!Number.isInteger(su.kills) || su.kills<0 || su.kills>100000)) return null;
     }
-    return s;
-  }catch(e){ return null; }
+  }
+  return s;
+}
+function loadRun(){
+  try{ return validateRunData(JSON.parse(localStorage.getItem(RUN_KEY))); }
+  catch(e){ return null; }
 }
 function clearRun(){ try{ localStorage.removeItem(RUN_KEY); }catch(e){} }
 function restoreRun(s){
@@ -1184,6 +1304,7 @@ function gameOver(){
   // 2) 실제 지급 + 지급 완료 표시 (같은 runId 재지급 불가)
   if(META.lastAward !== runId){ mergeBadges(newBadges); META.gems += gemsTotal; META.lastAward = runId; saveMeta(); }
   try{ localStorage.removeItem(AWARD_KEY); }catch(e){}
+  backupSave();
   AudioMan.play('defeat', 0.9); AudioMan.bgmStop();
   $('over-title').textContent = '성문이 함락됐습니다';
   $('over-sub').textContent = `${PERSONALITIES[G.persKey].name}와 함께 웨이브 ${G.wave}까지 방어`;
@@ -1225,7 +1346,7 @@ function onTap(ev){
     const d = u.def;
     const row = Math.floor(u.tile / TILE_SECTORS);
     const rowTxt = row===0 ? '전열 · 담당 구역 집중 +25%' : row===1 ? '중열 · 균형' : '후열 · 3구역 커버 · 사거리 +50% · 공격 -15%';
-    $('sel-info').innerHTML = `<b style="color:#${TIER_COLORS[d.tier-1].toString(16)}">[${TIER_NAMES[d.tier-1]}] ${d.name}</b> <span style="opacity:.8">(${ROW_NAMES[row]})</span><br>공격력 ${d.dmg} · 사거리 ${d.range} · 속도 ${d.interval}s${d.splash?` · 범위 ${d.splash}`:''}${d.slow?' · 둔화':''}${d.crit?' · 치명타':''}${d.aoe?' · 전체공격':''}<br><span style="opacity:.7">${rowTxt}<br>정예 Lv.${u.lv||1} · 처치 ${u.kills||0}${(u.lv||1)<5?' / 다음 Lv까지 '+(LV_XP[(u.lv||1)+1]-(u.kills||0)):''}${d.tier===5?' · 최고 레벨 도달 시 초월 각성':''}<br>다른 타일을 누르면 이동/교환${d.kind==='melee'?' · 근접은 전열 전용':''}</span>`;
+    $('sel-info').innerHTML = `<b style="color:#${TIER_COLORS[d.tier-1].toString(16)}">[${TIER_NAMES[d.tier-1]}] ${d.name}</b> <span style="opacity:.8">(${ROW_NAMES[row]})</span><br>공격력 ${d.dmg} · 사거리 ${d.range} · 속도 ${d.interval}s${d.splash?` · 범위 ${d.splash}`:''}${d.slow?' · 둔화':''}${d.crit?' · 치명타':''}${d.aoe?' · 전체공격':''}<br><span style="opacity:.7">${rowTxt}<br>정예 Lv.${u.lv||1} · 처치 ${u.kills||0}${(u.lv||1)<5?' / 다음 Lv까지 '+(LV_XP[(u.lv||1)+1]-(u.kills||0)):''}${d.tier===5&&T6_OF[d.id]?` · ✨ 초월까지 <b>${Math.max(0,LV_XP[5]-(u.kills||0))}</b>킬 (→ ${UNITS.find(x=>x.id===T6_OF[d.id]).name})`:''}<br>다른 타일을 누르면 이동/교환${d.kind==='melee'?' · 근접은 전열 전용':''}</span>`;
     $('sel-info').style.display='block';
   } else selTile=-1;
 }
@@ -1432,7 +1553,7 @@ function tick(forceDt){
     camera.position.set(camBase.x + (Math.random()*2-1)*m, camBase.y + (Math.random()*2-1)*m, camBase.z + (Math.random()*2-1)*m*0.6);
     if(shakeT<=0) camera.position.copy(camBase);
   }
-  renderer.render(scene, camera);
+  if(!G.dbg._renderOff) renderer.render(scene, camera);
 }
 
 // ---------- 부팅 ----------
@@ -1457,7 +1578,7 @@ function tick(forceDt){
     }
   } else {
     RECOVERED_GEMS = recoverAward();
-    showRecords(); renderMetaShop(); $('start').style.display='flex';
+    showRecords(); renderMetaShop(); setupDataPanel(); $('start').style.display='flex';
     try{ if(sessionStorage.getItem('fd_scroll_shop')==='1'){ sessionStorage.removeItem('fd_scroll_shop'); const ms=$('meta-shop'); if(ms){ ms.scrollIntoView({behavior:'smooth',block:'center'}); ms.classList.add('shop-flash'); setTimeout(()=>ms.classList.remove('shop-flash'), 1800); } } }catch(e){}
     const saved = loadRun();
     if(saved){
@@ -1467,7 +1588,7 @@ function tick(forceDt){
       rb.onclick = ()=>{ AudioMan.resume(); AudioMan.play('click',0.5); restoreRun(saved); };
     }
   }
-  window.__game = { G, startWave, saveRun, loadRun, clearRun, restoreRun, META, loadMeta, saveMeta, recoverAward, newRunId, applyMetaToRun, SPEC_DEFS, renderMetaShop, doSummon, doGamble, doMerge, spawnUnit, moveUnit, UNITS, tilePos, trackTheta, trackPoint, camera, THREE, tick, enemyZone, unitZones, sectorFull, dmgMul, zoneCovered, dangerZoneSet, aiPriorityZones, togglePing, updateZoneStrip, get prep(){ return { pending: prepPending, t: prepT, boss: prepBoss }; } };
+  window.__game = { G, AI, startWave, aiTick, saveRun, loadRun, clearRun, restoreRun, META, exportSave, importSave, restoreBackup, resetSave, loadBackup, backupSave, validRecords, validateRunData, loadMeta, saveMeta, recoverAward, newRunId, applyMetaToRun, SPEC_DEFS, renderMetaShop, doSummon, doGamble, doMerge, spawnUnit, moveUnit, UNITS, tilePos, trackTheta, trackPoint, camera, THREE, tick, enemyZone, unitZones, sectorFull, dmgMul, zoneCovered, dangerZoneSet, aiPriorityZones, togglePing, updateZoneStrip, get prep(){ return { pending: prepPending, t: prepT, boss: prepBoss }; } };
   function loop(){ requestAnimationFrame(loop); tick(); }
   setInterval(()=>{ if(performance.now()-lastTickAt > 200) tick(); }, 200);
   loop();
