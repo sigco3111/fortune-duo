@@ -4,7 +4,7 @@ import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import * as SkeletonUtils from '../vendor/SkeletonUtils.js';
 import { TIER_NAMES, TIER_COLORS, UNITS, UNITS_BY_TIER, ATTACK_ANIMS, GAMBLE_TABLE,
          MONSTERS, BOSSES, waveSpec, PERSONALITIES, AI_LINES,
-         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r31c';
+         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r32';
 
 const Q = new URLSearchParams(location.search);
 const AUTO = Q.get('auto') === '1';
@@ -1365,7 +1365,12 @@ function autoTick(dt){
   if(!waveActive && G.phase==='play'){ startWave(); return; }
   if(findTriple(-1)){ doMerge(-1); return; }
   if((S.spawnFails||0) >= 3) return;
-  if(S.gold >= summonCost(-1) && freeTiles(-1).length){ doSummon(-1); return; }
+  // R32: t1이 근접뿐이면 전열 여유가 있어야 소환 배치 가능 — 불가능한 소환을 매 틱 재시도하지 않음
+  const freeNow = freeTiles(-1);
+  const canSummon = freeNow.some(i=>i<TILE_SECTORS) || UNITS_BY_TIER[1].some(d=>d.kind!=='melee');
+  if(canSummon && S.gold >= summonCost(-1) && freeNow.length){ doSummon(-1); return; }
+  // 전열 포화로 소환 불가하면 도박이 유일한 성장 경로 — 지급 가능하면 시도(빈 소환 스핀·골드 방치 방지)
+  if(!canSummon && S.gold >= GAMBLE_COST && freeNow.length){ doGamble(-1); return; }
   if(S.gold > GAMBLE_COST*2 && rnd()<0.3){ doGamble(-1); return; }
   // 위험 구역 대응: 안전한 구역의 유닛을 위험 구역 빈 타일로 (사람 플레이어 대역)
   const dz = dangerZoneSet();
