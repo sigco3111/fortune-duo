@@ -89,6 +89,8 @@
   /* game over */
   #over-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0;font-size:14px;}
   #over-stats div{background:rgba(255,255,255,.06);border-radius:8px;padding:8px;}
+  #over-stats div{word-break:keep-all;}
+  #over-stats div:last-child:nth-child(odd){grid-column:1 / -1;text-align:center;}
   #over-stats b{display:block;font-size:20px;color:var(--gold);}
   /* loading */
   #loadbar{width:260px;height:10px;background:rgba(255,255,255,.12);border-radius:6px;margin:14px auto 4px;overflow:hidden;}
