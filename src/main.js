@@ -670,7 +670,7 @@ function checkLevelUp(u){
   burst(p.x, 1.0, p.z, 0x9fd4ff, 2.2);
   dmgNum(p.x, 2.6, p.z, 'Lv.'+nl+'!', '#9fd4ff', true);
   AudioMan.play('merge', u.side<0?0.5:0.25);
-  if(u.side<0) log(`${u.def.name}이(가) Lv.${nl}로 성장 (공격 +${(nl-1)*8}%)`, 'sys');
+  if(u.side<0) log(`${u.def.name} Lv.${nl}로 성장 (공격 +${(nl-1)*8}%)`, 'sys');
   if(u.def.tier===5 && nl>=5) transcend(u);
   updateZoneStrip();
 }
@@ -683,7 +683,7 @@ function transcend(u){
   burst(p.x, 1.4, p.z, 0xf8f4ff, 4.0); ring(p.x, p.z, 0xf8f4ff);
   dmgNum(p.x, 3.0, p.z, '초월 각성!', '#f8f4ff', true);
   AudioMan.play('gamble_win', 0.9);
-  log(`✨ ${nd.name}으로 초월 각성! (최고 레벨 전설 유닛)`, 'sys');
+  log(`✨ 초월 각성! [${TIER_NAMES[5]}] ${nd.name} (최고 레벨 전설 유닛)`, 'sys');
   updateHUD(); updateZoneStrip();
 }
 function damageEnemy(e, dmg, creditSide, crit=false, slow=null, killer=null){
