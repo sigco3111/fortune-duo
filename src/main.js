@@ -97,7 +97,10 @@ function placeCamera(){
   }
   camera.updateProjectionMatrix();
   camera.lookAt(0,0,2.2);
+  camBase = camera.position.clone();
 }
+let camBase = null, shakeT = 0; const SHAKE_DUR = 0.5;
+function shake(d=SHAKE_DUR){ shakeT = Math.max(shakeT, d); }
 placeCamera();
 function onResize(){ renderer.setSize(innerWidth, innerHeight); camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); placeCamera(); }
 addEventListener('resize', onResize); onResize();
@@ -540,7 +543,7 @@ function startWave(){
     $('boss-banner').textContent = '⚠ 보스 출현 ⚠';
     $('boss-banner').style.display='block'; setTimeout(()=>$('boss-banner').style.display='none', 3500);
     AudioMan.play('boss', 0.9);
-    log(`웨이브 ${G.wave} — 보스 「${boss.name}」 출현!`, 'sys'); aiSay('boss');
+    log(`웨이브 ${G.wave} — 보스 「${boss.name}」 출현!`, 'sys'); aiSay('boss'); shake(0.6);
   } else {
     for(let i=0;i<spec.count;i++){
       const t = 1 + Math.floor(wrnd()*spec.tierAvail);
@@ -584,7 +587,7 @@ function leak(e){
   G.lives -= e.boss?5:1;
   scene.remove(e.group);
   G.enemies = G.enemies.filter(x=>x!==e);
-  AudioMan.play('leak', 0.8);
+  AudioMan.play('leak', 0.8); shake(e.boss?0.7:0.4);
   $('vign').classList.add('hit'); setTimeout(()=>$('vign').classList.remove('hit'), 350);
   log(`성문 침투! ${e.boss?'보스 -5':'-1'} (남은 공유 생명 ${Math.max(0,G.lives)})`, 'sys');
   if(AI.alive) aiSay('leak');
@@ -1049,6 +1052,12 @@ function tick(forceDt){
   rawClock += raw;
   for(const [e, a] of [...dmgAgg]){ a.t += raw; if(a.t >= DMG_WINDOW || e.dead) flushDmgAgg(e); }
   for(const d of dmgPool){ if(!d.active) continue; d.t+=raw; d.sp.position.y += raw*1.6; d.sp.material.opacity = 1-d.t/0.85; if(d.t>0.85){ d.active=false; d.sp.visible=false; } }
+  if(camBase && shakeT>0){
+    shakeT -= raw;
+    const m = 0.5 * Math.max(0, shakeT) / SHAKE_DUR;
+    camera.position.set(camBase.x + (Math.random()*2-1)*m, camBase.y + (Math.random()*2-1)*m, camBase.z + (Math.random()*2-1)*m*0.6);
+    if(shakeT<=0) camera.position.copy(camBase);
+  }
   renderer.render(scene, camera);
 }
 
