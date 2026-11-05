@@ -4,7 +4,7 @@ import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import * as SkeletonUtils from '../vendor/SkeletonUtils.js';
 import { TIER_NAMES, TIER_COLORS, UNITS, UNITS_BY_TIER, ATTACK_ANIMS, GAMBLE_TABLE,
          MONSTERS, BOSSES, waveSpec, PERSONALITIES, AI_LINES,
-         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES } from './data.js';
+         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js';
 
 const Q = new URLSearchParams(location.search);
 const AUTO = Q.get('auto') === '1';
@@ -429,10 +429,10 @@ function applyMetaToRun(upg){
   G.freeGamble = G.metaSpec==='fortune' ? { '-1':true, '1':true } : null;
 }
 
-const G = { phase:'boot', wave:0, lives:START_LIVES, metaUpg:zeroUpg(), metaSpec:null, leakShield:0, freeGamble:null, bossKills:0, runId:null, leakLog:[], paused:false, speed:1, sides:{}, enemies:[], projectiles:[], kills:0, goldEarned:0, persKey:'balanced', pings:new Set(), pingSrc:new Map() };
+const G = { phase:'boot', wave:0, ch:[], lives:START_LIVES, metaUpg:zeroUpg(), metaSpec:null, leakShield:0, freeGamble:null, bossKills:0, runId:null, leakLog:[], paused:false, speed:1, sides:{}, enemies:[], projectiles:[], kills:0, goldEarned:0, persKey:'balanced', pings:new Set(), pingSrc:new Map() };
 function newSide(side){ return { side, gold:START_GOLD, carry:0, summons:0, units:[] }; }
 G.sides[-1]=newSide(-1); G.sides[1]=newSide(1);
-const summonCost = s => SUMMON_BASE + G.sides[s].summons * SUMMON_STEP;
+const summonCost = s => Math.round((SUMMON_BASE + G.sides[s].summons * SUMMON_STEP) * (G.ch.includes('drought')?1.5:1));
 
 function makeAnimator(inst, idleNames){
   const mixer = new THREE.AnimationMixer(inst.inner);
@@ -617,10 +617,10 @@ function spawnEnemy(spec, waveN, isBoss=false, tier=0){
   scene.add(inst.group);
   const moveAnim = spec.fly ? ['Flying','Walk'] : ['Walk','Flying','Idle'];
   const anim = makeAnimator(inst, moveAnim);
-  const maxHp = Math.round(waveSpec(waveN).hpBase * (spec.hp||1)) * (isBoss? 1 : 1);
+  const maxHp = Math.round(Math.round(waveSpec(waveN).hpBase * (spec.hp||1)) * (G.ch.includes('iron')?1.3:1));
   const radial = (rnd()-0.5)*0.9;
   const e = { group:inst.group, inner:inst.inner, anim, spec, hp:maxHp, maxHp, tier,
-    t:0, speed:(spec.sp||1)*(0.92+rnd()*0.16), slowT:0, slowF:1, dead:false, boss:isBoss,
+    t:0, speed:(spec.sp||1)*(0.92+rnd()*0.16)*(G.ch.includes('blitz')?1.25:1), slowT:0, slowF:1, dead:false, boss:isBoss,
     fly:!!spec.fly, radial, wiggle:rnd()*6.28, h };
   const start = trackPoint(trackTheta(0), radial);
   e.group.position.set(start.x, e.fly?0.8:0, start.z);
@@ -960,7 +960,7 @@ function updateHUD(){
     if(prepPending) $('wave-banner').textContent = `정비 중… ${Math.ceil(prepT)}초 후 웨이브 ${G.wave+1}`;
     else $('wave-banner').textContent = G.wave===0 ? '준비 중 — 첫 웨이브는 직접 시작' : `웨이브 ${G.wave} 클리어`;
   }
-  else $('wave-banner').textContent = `웨이브 ${G.wave}${waveSpec(G.wave).boss?' — 보스!':''} · 남은 적 ${G.enemies.length + spawnQueue.length}`;
+  else $('wave-banner').textContent = `웨이브 ${G.wave}${waveSpec(G.wave).boss?' — 보스!':''} · 남은 적 ${G.enemies.length + spawnQueue.length}${G.ch.length?' · 도전 '+G.ch.length:''}`;
   $('ai-state').textContent = `골드 ${Math.floor(G.sides[1].gold)} · 유닛 ${G.sides[1].units.length}`;
   const chip = $('spec-chip');
   if(chip){
@@ -997,13 +997,17 @@ G.dbg = { hits:0, dmgShown:0, burstShown:0, burstSkipped:0 };
 function loadRecords(){ try{ return JSON.parse(localStorage.getItem('fd_records_v1')) || { best:0, games:0, per:{} }; }catch(e){ return { best:0, games:0, per:{} }; } }
 function saveRecords(){
   const r = loadRecords();
-  if(G.wave>0){ r.best = Math.max(r.best, G.wave); r.per[G.persKey] = Math.max(r.per[G.persKey]||0, G.wave); }
+  if(G.wave>0){
+    if(G.ch && G.ch.length){ r.ch = r.ch||{}; for(const k of G.ch){ r.ch[k] = Math.max(r.ch[k]||0, G.wave); } }
+    else { r.best = Math.max(r.best, G.wave); r.per[G.persKey] = Math.max(r.per[G.persKey]||0, G.wave); }
+  }
   localStorage.setItem('fd_records_v1', JSON.stringify(r));
 }
 function showRecords(){
   const r = loadRecords();
   $('records').innerHTML = r.games>0
     ? `최고 기록: <b>웨이브 ${r.best}</b> · 총 ${r.games}게임` + Object.entries(r.per).map(([k,v])=>`<br>${PERSONALITIES[k]?.name||k}: 웨이브 ${v}`).join('')
+      + (r.ch && Object.keys(r.ch).length ? '<br><span style="color:#ff8a5c">도전 의식:</span>' + Object.entries(r.ch).map(([k,v])=>`<br>&nbsp;${CHALLENGES[k]?.icon||''} ${CHALLENGES[k]?.name||k}: 웨이브 ${v}`).join('') : '')
     : '아직 기록이 없습니다. 첫 게임을 시작해 보세요!';
 }
 
@@ -1012,7 +1016,7 @@ const RUN_KEY = 'fd_run_v1';
 function saveRun(){
   if(G.phase!=='play' || G.wave<=0) return;
   try{
-    const s = { v:1, runId:G.runId||null, spec:G.metaSpec||null, leakShield:G.leakShield||0, freeGamble:G.freeGamble||null, wave:G.wave, lives:G.lives, kills:G.kills, dmg:Math.round(G.dmgDealt||0), goldEarned:G.goldEarned, persKey:G.persKey, speed:G.speed, meta:{ ...G.metaUpg },
+    const s = { v:1, runId:G.runId||null, ch:Array.isArray(G.ch)?G.ch:[], spec:G.metaSpec||null, leakShield:G.leakShield||0, freeGamble:G.freeGamble||null, wave:G.wave, lives:G.lives, kills:G.kills, dmg:Math.round(G.dmgDealt||0), goldEarned:G.goldEarned, persKey:G.persKey, speed:G.speed, meta:{ ...G.metaUpg },
       sides:{ '-1':{ gold:G.sides[-1].gold, carry:G.sides[-1].carry||0, summons:G.sides[-1].summons, units:G.sides[-1].units.map(u=>({id:u.def.id, tile:u.tile, lv:u.lv||1, kills:u.kills||0})) },
               '1':{ gold:G.sides[1].gold, carry:G.sides[1].carry||0, summons:G.sides[1].summons, units:G.sides[1].units.map(u=>({id:u.def.id, tile:u.tile, lv:u.lv||1, kills:u.kills||0})) } } };
     localStorage.setItem(RUN_KEY, JSON.stringify(s));
@@ -1025,6 +1029,7 @@ function loadRun(){
     if(!Number.isInteger(s.lives) || s.lives<=0) return null;
     if(s.spec!=null && !SPEC_DEFS[s.spec]) return null;
     if(s.leakShield!=null && (!Number.isInteger(s.leakShield) || s.leakShield<0 || s.leakShield>3)) return null;
+    if(s.ch!=null && (!Array.isArray(s.ch) || s.ch.length>3 || !s.ch.every(k=>CHALLENGES[k]))) return null;
     if(s.freeGamble!=null && typeof s.freeGamble!=='object') return null;
     for(const k of ['-1','1']){
       const ss = s.sides && s.sides[k];
@@ -1053,6 +1058,7 @@ function restoreRunInner(s){
   G.metaUpg = { ...zeroUpg(), ...(s.meta||{}) };
   G.runId = typeof s.runId==='string' ? s.runId : newRunId();
   G.metaSpec = (s.spec && SPEC_DEFS[s.spec]) ? s.spec : null;
+  G.ch = (Array.isArray(s.ch)?s.ch:[]).filter(k=>CHALLENGES[k]);
   G.leakShield = Number.isInteger(s.leakShield) ? s.leakShield : 0;
   G.freeGamble = (s.freeGamble && typeof s.freeGamble==='object') ? s.freeGamble : null;
   for(const side of [-1,1]){
@@ -1074,7 +1080,7 @@ let overFired = false;
 function gameOver(){
   if(overFired) return; overFired = true;
   G.phase='over';
-  const gemsEarned = Math.max(0, G.wave-1) + 2*(G.bossKills||0);
+  const gemsEarned = Math.round((Math.max(0, G.wave-1) + 2*(G.bossKills||0)) * (1 + 0.25*(G.ch?G.ch.length:0)));
   const runId = G.runId || newRunId();
   // 1) 저널 먼저: 이후 어디서 중단돼도 부팅 시 정확히 한 번 지급
   try{ localStorage.setItem(AWARD_KEY, JSON.stringify({ runId, gems: gemsEarned })); }catch(e){}
@@ -1090,7 +1096,7 @@ function gameOver(){
   $('over-sub').textContent = `${PERSONALITIES[G.persKey].name}와 함께 웨이브 ${G.wave}까지 방어`;
   const aiS = G.sides[1];
   if(AI.alive) aiSay('end');
-  $('over-stats').innerHTML = `<div>도달 웨이브<b>${G.wave}</b></div><div>처치 수<b>${G.kills}</b></div><div>총 피해량<b>${Math.round(G.dmgDealt||0).toLocaleString()}</b></div><div>획득 골드<b>${G.goldEarned}</b></div><div>AI 최종 유닛<b>${aiS.units.length}기</b></div><div>최고 기록<b>${loadRecords().best}</b></div><div>획득 젬<b>+${gemsEarned} 💎</b></div><div>보유 젬<b>${META.gems}</b></div>`;
+  $('over-stats').innerHTML = `<div>도달 웨이브<b>${G.wave}</b></div><div>처치 수<b>${G.kills}</b></div><div>총 피해량<b>${Math.round(G.dmgDealt||0).toLocaleString()}</b></div><div>획득 골드<b>${G.goldEarned}</b></div><div>AI 최종 유닛<b>${aiS.units.length}기</b></div><div>최고 기록<b>${loadRecords().best}</b></div>${G.ch&&G.ch.length?`<div>도전 의식<b>${G.ch.map(k=>CHALLENGES[k].name).join('·')}</b></div>`:''}<div>획득 젬<b>+${gemsEarned} 💎</b></div><div>보유 젬<b>${META.gems}</b></div>`;
   if(G.leakLog.length){
     const byZ = {};
     for(const l of G.leakLog){ const nm = (ZONE_TRAVEL.find(([zz])=>zz===l.z)||[])[1] || ('구역'+(l.z+1)); byZ[nm] = (byZ[nm]||0)+1; }
@@ -1219,7 +1225,16 @@ $('btn-sound').textContent = AudioMan.enabled?'소리':'음소거';
 
 // ---------- 시작 화면 ----------
 let selPers = 'random';
+let selCh = new Set();
 (function buildPersGrid(){
+  const chg = $('ch-grid');
+  if(chg){ for(const k of Object.keys(CHALLENGES)){
+    const c = CHALLENGES[k];
+    const b = document.createElement('button');
+    b.innerHTML = `<b>${c.icon} ${c.name}</b><span>${c.desc}</span>`;
+    b.onclick = ()=>{ if(selCh.has(k)) selCh.delete(k); else selCh.add(k); b.classList.toggle('sel', selCh.has(k)); AudioMan.resume(); AudioMan.play('click',0.5); };
+    chg.appendChild(b);
+  } }
   const grid = $('pers-grid');
   for(const [k,p] of Object.entries(PERSONALITIES)){
     const b = document.createElement('button');
@@ -1236,9 +1251,11 @@ $('btn-start').onclick = ()=>{
   applyMetaToRun(META.upg);
   G.bestAtStart = loadRecords().best || 0;
   G.persKey = selPers==='random' ? pick(['balanced','attacker','saver','merger','support','adaptive']) : selPers;
+  G.ch = [...selCh].filter(k=>CHALLENGES[k]);
   $('ai-name').textContent = PERSONALITIES[G.persKey].name;
   $('start').style.display='none';
   G.phase='play'; AI.alive=true;
+  if(G.ch.length) log(`도전 의식 발동: ${G.ch.map(k=>CHALLENGES[k].name).join('·')} — 기록 별도 저장, 젬 +${25*G.ch.length}%`, 'sys');
   AudioMan.bgmStart();
   log(`${PERSONALITIES[G.persKey].name} 파트너가 합류했습니다!`, 'sys');
   aiSay('start');
@@ -1316,6 +1333,7 @@ function tick(forceDt){
     else{
       G.bestAtStart = loadRecords().best || 0;
       G.persKey = Q.get('pers') || 'balanced';
+      G.ch = (Q.get('ch')||'').split(',').filter(k=>CHALLENGES[k]);
       applyMetaToRun(META.upg);
       $('ai-name').textContent = PERSONALITIES[G.persKey].name;
       $('start').style.display='none'; G.phase='play'; AI.alive=true;
