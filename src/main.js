@@ -349,14 +349,30 @@ function loadMeta(){
     const mm = JSON.parse(localStorage.getItem(META_KEY));
     if(!mm || mm.v!==1 || typeof mm.gems!=='number' || !(mm.gems>=0) || !mm.upg) throw 0;
     for(const k of Object.keys(UPG_DEFS)){ const v = mm.upg[k]; mm.upg[k] = Number.isInteger(v) ? Math.min(Math.max(v,0), UPG_DEFS[k].max) : 0; }
+    mm.lastAward = typeof mm.lastAward==='string' ? mm.lastAward : null;
     return mm;
-  }catch(e){ return { v:1, gems:0, upg:zeroUpg() }; }
+  }catch(e){ return { v:1, gems:0, upg:zeroUpg(), lastAward:null }; }
 }
 const META = loadMeta();
 function saveMeta(){ try{ localStorage.setItem(META_KEY, JSON.stringify(META)); }catch(e){} }
+// ---------- 보상 내구성: 지급 대기 저널 (크래시·새로고침 후에도 정확히 한 번 지급) ----------
+const AWARD_KEY = 'fd_award_v1';
+function newRunId(){ return 'r'+Date.now().toString(36)+Math.floor(Math.random()*1e6).toString(36); }
+function recoverAward(){
+  try{
+    const j = JSON.parse(localStorage.getItem(AWARD_KEY));
+    if(!j || typeof j.runId!=='string' || !Number.isInteger(j.gems) || j.gems<0){ localStorage.removeItem(AWARD_KEY); return null; }
+    if(META.lastAward === j.runId){ localStorage.removeItem(AWARD_KEY); return null; }
+    META.gems += j.gems; META.lastAward = j.runId; saveMeta();
+    localStorage.removeItem(AWARD_KEY);
+    return j.gems;
+  }catch(e){ try{ localStorage.removeItem(AWARD_KEY); }catch(e2){} return null; }
+}
+let RECOVERED_GEMS = recoverAward();
 function renderMetaShop(){
   const el = $('meta-shop'); if(!el) return;
   let html = `<div class="meta-head">💎 보유 젬 <b>${META.gems}</b><span style="opacity:.7;font-size:12px"> — 웨이브 클리어·보스 처치로 획득, 다음 판부터 영구 적용</span></div>`;
+  if(RECOVERED_GEMS){ html += `<div class="meta-head" style="color:var(--gold);font-size:13px;margin-top:4px">지난 판 보상 +${RECOVERED_GEMS}💎이 안전하게 복구됐습니다</div>`; RECOVERED_GEMS = 0; }
   for(const [k,d] of Object.entries(UPG_DEFS)){
     const lv = META.upg[k], maxed = lv>=d.max, cost = maxed?0:UPG_COST(lv);
     html += `<div class="upg-row"><div class="upg-info"><b>${d.name}</b> <span class="pips">${'●'.repeat(lv)}${'○'.repeat(d.max-lv)}</span><br><span class="upg-desc">${d.desc}</span></div><button class="upg-buy" data-k="${k}" ${maxed||META.gems<cost?'disabled':''}>${maxed?'MAX':`강화 ${cost}💎`}</button></div>`;
@@ -377,7 +393,7 @@ function applyMetaToRun(upg){
   for(const s of [-1,1]) G.sides[s].gold = START_GOLD + 10*G.metaUpg.gold;
 }
 
-const G = { phase:'boot', wave:0, lives:START_LIVES, metaUpg:zeroUpg(), bossKills:0, paused:false, speed:1, sides:{}, enemies:[], projectiles:[], kills:0, goldEarned:0, persKey:'balanced', pings:new Set(), pingSrc:new Map() };
+const G = { phase:'boot', wave:0, lives:START_LIVES, metaUpg:zeroUpg(), bossKills:0, runId:null, paused:false, speed:1, sides:{}, enemies:[], projectiles:[], kills:0, goldEarned:0, persKey:'balanced', pings:new Set(), pingSrc:new Map() };
 function newSide(side){ return { side, gold:START_GOLD, summons:0, units:[] }; }
 G.sides[-1]=newSide(-1); G.sides[1]=newSide(1);
 const summonCost = s => SUMMON_BASE + G.sides[s].summons * SUMMON_STEP;
@@ -901,7 +917,7 @@ const RUN_KEY = 'fd_run_v1';
 function saveRun(){
   if(G.phase!=='play' || G.wave<=0) return;
   try{
-    const s = { v:1, wave:G.wave, lives:G.lives, kills:G.kills, dmg:Math.round(G.dmgDealt||0), goldEarned:G.goldEarned, persKey:G.persKey, speed:G.speed, meta:{ ...G.metaUpg },
+    const s = { v:1, runId:G.runId||null, wave:G.wave, lives:G.lives, kills:G.kills, dmg:Math.round(G.dmgDealt||0), goldEarned:G.goldEarned, persKey:G.persKey, speed:G.speed, meta:{ ...G.metaUpg },
       sides:{ '-1':{ gold:G.sides[-1].gold, summons:G.sides[-1].summons, units:G.sides[-1].units.map(u=>({id:u.def.id, tile:u.tile})) },
               '1':{ gold:G.sides[1].gold, summons:G.sides[1].summons, units:G.sides[1].units.map(u=>({id:u.def.id, tile:u.tile})) } } };
     localStorage.setItem(RUN_KEY, JSON.stringify(s));
@@ -934,6 +950,7 @@ function restoreRunInner(s){
   G.wave=s.wave; G.lives=s.lives; G.kills=s.kills||0; G.dmgDealt=s.dmg||0; G.goldEarned=s.goldEarned||0;
   G.speed = [1,2,3].includes(s.speed)?s.speed:1; if($('btn-speed')) $('btn-speed').textContent = G.speed+'x';
   G.metaUpg = { ...zeroUpg(), ...(s.meta||{}) };
+  G.runId = typeof s.runId==='string' ? s.runId : newRunId();
   for(const side of [-1,1]){
     const old = G.sides[side]; [...old.units].forEach(removeUnit);
     const ss = s.sides[String(side)] || { gold:START_GOLD, summons:0, units:[] };
@@ -953,12 +970,17 @@ let overFired = false;
 function gameOver(){
   if(overFired) return; overFired = true;
   G.phase='over';
+  const gemsEarned = Math.max(0, G.wave-1) + 2*(G.bossKills||0);
+  const runId = G.runId || newRunId();
+  // 1) 저널 먼저: 이후 어디서 중단돼도 부팅 시 정확히 한 번 지급
+  try{ localStorage.setItem(AWARD_KEY, JSON.stringify({ runId, gems: gemsEarned })); }catch(e){}
   clearRun();
   const prevBest = (G.bestAtStart != null) ? G.bestAtStart : 0;
   const r = loadRecords(); r.games++; localStorage.setItem('fd_records_v1', JSON.stringify(r));
   saveRecords();
-  const gemsEarned = Math.max(0, G.wave-1) + 2*(G.bossKills||0);
-  META.gems += gemsEarned; saveMeta();
+  // 2) 실제 지급 + 지급 완료 표시 (같은 runId 재지급 불가)
+  if(META.lastAward !== runId){ META.gems += gemsEarned; META.lastAward = runId; saveMeta(); }
+  try{ localStorage.removeItem(AWARD_KEY); }catch(e){}
   AudioMan.play('defeat', 0.9); AudioMan.bgmStop();
   $('over-title').textContent = '성문이 함락됐습니다';
   $('over-sub').textContent = `${PERSONALITIES[G.persKey].name}와 함께 웨이브 ${G.wave}까지 방어`;
@@ -1081,6 +1103,7 @@ $('btn-pause').onclick = ()=>{
   if(G.paused){ AudioMan.bgmStop(); log('일시정지', 'sys'); } else { AudioMan.bgmStart(); log('재개', 'sys'); }
 };
 $('btn-retry').onclick = ()=>location.reload();
+$('btn-over-shop').onclick = ()=>{ try{ sessionStorage.setItem('fd_scroll_shop','1'); }catch(e){} location.reload(); };
 $('btn-sound').textContent = AudioMan.enabled?'소리':'음소거';
 
 // ---------- 시작 화면 ----------
@@ -1098,6 +1121,7 @@ let selPers = 'random';
 $('btn-start').onclick = ()=>{
   AudioMan.resume();
   clearRun();
+  G.runId = newRunId();
   applyMetaToRun(META.upg);
   G.bestAtStart = loadRecords().best || 0;
   G.persKey = selPers==='random' ? pick(['balanced','attacker','saver','merger','support','adaptive']) : selPers;
@@ -1187,6 +1211,7 @@ function tick(forceDt){
     }
   } else {
     showRecords(); renderMetaShop(); $('start').style.display='flex';
+    try{ if(sessionStorage.getItem('fd_scroll_shop')==='1'){ sessionStorage.removeItem('fd_scroll_shop'); const ms=$('meta-shop'); if(ms){ ms.scrollIntoView({behavior:'smooth',block:'center'}); ms.classList.add('shop-flash'); setTimeout(()=>ms.classList.remove('shop-flash'), 1800); } } }catch(e){}
     const saved = loadRun();
     if(saved){
       const rb = $('btn-resume');
@@ -1195,7 +1220,7 @@ function tick(forceDt){
       rb.onclick = ()=>{ AudioMan.resume(); AudioMan.play('click',0.5); restoreRun(saved); };
     }
   }
-  window.__game = { G, startWave, saveRun, loadRun, clearRun, restoreRun, META, loadMeta, saveMeta, applyMetaToRun, renderMetaShop, doSummon, doGamble, doMerge, spawnUnit, moveUnit, UNITS, tilePos, trackTheta, trackPoint, camera, THREE, tick, enemyZone, unitZones, sectorFull, dmgMul, zoneCovered, dangerZoneSet, aiPriorityZones, togglePing, updateZoneStrip, get prep(){ return { pending: prepPending, t: prepT, boss: prepBoss }; } };
+  window.__game = { G, startWave, saveRun, loadRun, clearRun, restoreRun, META, loadMeta, saveMeta, recoverAward, newRunId, applyMetaToRun, renderMetaShop, doSummon, doGamble, doMerge, spawnUnit, moveUnit, UNITS, tilePos, trackTheta, trackPoint, camera, THREE, tick, enemyZone, unitZones, sectorFull, dmgMul, zoneCovered, dangerZoneSet, aiPriorityZones, togglePing, updateZoneStrip, get prep(){ return { pending: prepPending, t: prepT, boss: prepBoss }; } };
   function loop(){ requestAnimationFrame(loop); tick(); }
   setInterval(()=>{ if(performance.now()-lastTickAt > 200) tick(); }, 200);
   loop();
