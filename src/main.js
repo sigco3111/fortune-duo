@@ -394,6 +394,11 @@ function chooseTile(side, def, prefRow){
   // 적이 지나는데 커버가 없는 위험 구역 담당 타일 우선 (AI의 약한 구역 보강, 핑 반영)
   const dz = pickPriorityZones(side);
   if(dz.size){ const cover = pool.filter(i => dz.has(zoneOfTile(side, i % TILE_SECTORS))); if(cover.length) pool = cover; }
+  // 합성 장인 AI: 같은 유닛 재료가 있는 구역 우선
+  if(side>0 && G.persKey==='merger'){
+    const sameSecs = new Set(G.sides[1].units.filter(u=>u.def.id===def.id).map(u=>u.sector));
+    if(sameSecs.size){ const same = pool.filter(i => sameSecs.has(i % TILE_SECTORS)); if(same.length) pool = same; }
+  }
   const empt = pool.filter(emptySector);
   return pick(empt.length ? empt : pool);
 }
@@ -804,6 +809,8 @@ function updateHUD(){
     $('bossbar-name').textContent = boss.spec.name || '보스';
     $('bossbar-fill').style.width = Math.max(0, boss.hp/boss.maxHp*100) + '%';
   } else $('bossbar').style.display='none';
+  // 침투 임박(한 바퀴의 86% 이상 진행) 경고
+  $('vign').classList.toggle('warn', G.enemies.some(e=>!e.dead && e.t>0.86));
 }
 
 // ---------- 기록 ----------
