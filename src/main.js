@@ -334,7 +334,50 @@ function burstCombat(x, y, z, color, spread, tgt){
 }
 
 // ---------- 게임 상태 ----------
-const G = { phase:'boot', wave:0, lives:START_LIVES, paused:false, speed:1, sides:{}, enemies:[], projectiles:[], kills:0, goldEarned:0, persKey:'balanced', pings:new Set(), pingSrc:new Map() };
+// ---------- 메타 진행(영구 성장) ----------
+const META_KEY = 'fd_meta_v1';
+const UPG_DEFS = {
+  gold: { name:'시작 골드', desc:'양쪽 진영 시작 골드 +10', max:5 },
+  lives:{ name:'공유 생명', desc:'시작 공유 생명 +2', max:5 },
+  dmg:  { name:'유닛 공격력', desc:'양쪽 진영 피해 +3%', max:5 },
+  econ: { name:'킬 골드', desc:'처치 골드 +5%', max:5 },
+};
+const UPG_COST = l => [5,8,12,17,23][l] ?? 0;
+function zeroUpg(){ return { gold:0, lives:0, dmg:0, econ:0 }; }
+function loadMeta(){
+  try{
+    const mm = JSON.parse(localStorage.getItem(META_KEY));
+    if(!mm || mm.v!==1 || typeof mm.gems!=='number' || !(mm.gems>=0) || !mm.upg) throw 0;
+    for(const k of Object.keys(UPG_DEFS)){ const v = mm.upg[k]; mm.upg[k] = Number.isInteger(v) ? Math.min(Math.max(v,0), UPG_DEFS[k].max) : 0; }
+    return mm;
+  }catch(e){ return { v:1, gems:0, upg:zeroUpg() }; }
+}
+const META = loadMeta();
+function saveMeta(){ try{ localStorage.setItem(META_KEY, JSON.stringify(META)); }catch(e){} }
+function renderMetaShop(){
+  const el = $('meta-shop'); if(!el) return;
+  let html = `<div class="meta-head">💎 보유 젬 <b>${META.gems}</b><span style="opacity:.7;font-size:12px"> — 웨이브 클리어·보스 처치로 획득, 다음 판부터 영구 적용</span></div>`;
+  for(const [k,d] of Object.entries(UPG_DEFS)){
+    const lv = META.upg[k], maxed = lv>=d.max, cost = maxed?0:UPG_COST(lv);
+    html += `<div class="upg-row"><div class="upg-info"><b>${d.name}</b> <span class="pips">${'●'.repeat(lv)}${'○'.repeat(d.max-lv)}</span><br><span class="upg-desc">${d.desc}</span></div><button class="upg-buy" data-k="${k}" ${maxed||META.gems<cost?'disabled':''}>${maxed?'MAX':`강화 ${cost}💎`}</button></div>`;
+  }
+  el.innerHTML = html;
+  el.querySelectorAll('.upg-buy').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.k, lv=META.upg[k], cost=UPG_COST(lv);
+    if(lv>=UPG_DEFS[k].max || META.gems<cost) return;
+    META.gems-=cost; META.upg[k]++; saveMeta();
+    AudioMan.resume(); AudioMan.play('gamble_win',0.5);
+    renderMetaShop();
+  });
+}
+// 런 시작 시점의 강화 단계를 그 런에 고정 (도중 구매·이어하기와 무관하게 일관 적용)
+function applyMetaToRun(upg){
+  G.metaUpg = { ...zeroUpg(), ...(upg||{}) };
+  G.lives = START_LIVES + 2*G.metaUpg.lives;
+  for(const s of [-1,1]) G.sides[s].gold = START_GOLD + 10*G.metaUpg.gold;
+}
+
+const G = { phase:'boot', wave:0, lives:START_LIVES, metaUpg:zeroUpg(), bossKills:0, paused:false, speed:1, sides:{}, enemies:[], projectiles:[], kills:0, goldEarned:0, persKey:'balanced', pings:new Set(), pingSrc:new Map() };
 function newSide(side){ return { side, gold:START_GOLD, summons:0, units:[] }; }
 G.sides[-1]=newSide(-1); G.sides[1]=newSide(1);
 const summonCost = s => SUMMON_BASE + G.sides[s].summons * SUMMON_STEP;
@@ -576,7 +619,8 @@ function damageEnemy(e, dmg, creditSide, crit=false, slow=null){
     if(e.hpBar) e.hpBar.visible=false;
     if(e.boss){ dmgNum(e.group.position.x, 3.4, e.group.position.z, '보스 처치!', '#ff8a5c', true); ring(e.group.position.x, e.group.position.z, 0xff8a5c); if(AI.alive) aiSay('bossKill'); }
     const S = G.sides[creditSide] || G.sides[-1];
-    const gold = e.boss ? 50 : waveSpec(G.wave).killGold;
+    const gold = Math.round((e.boss ? 50 : waveSpec(G.wave).killGold) * (1 + 0.05*(G.metaUpg?.econ||0)));
+    if(e.boss) G.bossKills = (G.bossKills||0)+1;
     S.gold += gold; G.goldEarned += gold; G.kills++;
     G.dbg.dmgShown++;
     dmgNum(e.group.position.x, 1.3, e.group.position.z, `+${gold}G`, '#ffd766');
@@ -642,7 +686,7 @@ function fireProjectile(u, target){
 }
 // 열 보정: 후열 -15%, 전열은 담당 구역 안 적에게 +25%
 function dmgMul(u, e){
-  let m = 1;
+  let m = 1 + 0.03*(G.metaUpg?.dmg||0);
   if(u.row === 2) m *= 0.85;
   else if(u.row === 0 && enemyZone(e) === u.zone) m *= 1.25;
   return m;
@@ -857,7 +901,7 @@ const RUN_KEY = 'fd_run_v1';
 function saveRun(){
   if(G.phase!=='play' || G.wave<=0) return;
   try{
-    const s = { v:1, wave:G.wave, lives:G.lives, kills:G.kills, dmg:Math.round(G.dmgDealt||0), goldEarned:G.goldEarned, persKey:G.persKey, speed:G.speed,
+    const s = { v:1, wave:G.wave, lives:G.lives, kills:G.kills, dmg:Math.round(G.dmgDealt||0), goldEarned:G.goldEarned, persKey:G.persKey, speed:G.speed, meta:{ ...G.metaUpg },
       sides:{ '-1':{ gold:G.sides[-1].gold, summons:G.sides[-1].summons, units:G.sides[-1].units.map(u=>({id:u.def.id, tile:u.tile})) },
               '1':{ gold:G.sides[1].gold, summons:G.sides[1].summons, units:G.sides[1].units.map(u=>({id:u.def.id, tile:u.tile})) } } };
     localStorage.setItem(RUN_KEY, JSON.stringify(s));
@@ -889,6 +933,7 @@ function restoreRunInner(s){
   G.persKey = s.persKey; $('ai-name').textContent = PERSONALITIES[s.persKey].name;
   G.wave=s.wave; G.lives=s.lives; G.kills=s.kills||0; G.dmgDealt=s.dmg||0; G.goldEarned=s.goldEarned||0;
   G.speed = [1,2,3].includes(s.speed)?s.speed:1; if($('btn-speed')) $('btn-speed').textContent = G.speed+'x';
+  G.metaUpg = { ...zeroUpg(), ...(s.meta||{}) };
   for(const side of [-1,1]){
     const old = G.sides[side]; [...old.units].forEach(removeUnit);
     const ss = s.sides[String(side)] || { gold:START_GOLD, summons:0, units:[] };
@@ -904,18 +949,22 @@ function restoreRunInner(s){
 }
 
 // ---------- 게임 오버 ----------
+let overFired = false;
 function gameOver(){
+  if(overFired) return; overFired = true;
   G.phase='over';
   clearRun();
   const prevBest = (G.bestAtStart != null) ? G.bestAtStart : 0;
   const r = loadRecords(); r.games++; localStorage.setItem('fd_records_v1', JSON.stringify(r));
   saveRecords();
+  const gemsEarned = Math.max(0, G.wave-1) + 2*(G.bossKills||0);
+  META.gems += gemsEarned; saveMeta();
   AudioMan.play('defeat', 0.9); AudioMan.bgmStop();
   $('over-title').textContent = '성문이 함락됐습니다';
   $('over-sub').textContent = `${PERSONALITIES[G.persKey].name}와 함께 웨이브 ${G.wave}까지 방어`;
   const aiS = G.sides[1];
   if(AI.alive) aiSay('end');
-  $('over-stats').innerHTML = `<div>도달 웨이브<b>${G.wave}</b></div><div>처치 수<b>${G.kills}</b></div><div>총 피해량<b>${Math.round(G.dmgDealt||0).toLocaleString()}</b></div><div>획득 골드<b>${G.goldEarned}</b></div><div>AI 최종 유닛<b>${aiS.units.length}기</b></div><div>최고 기록<b>${loadRecords().best}</b></div>`;
+  $('over-stats').innerHTML = `<div>도달 웨이브<b>${G.wave}</b></div><div>처치 수<b>${G.kills}</b></div><div>총 피해량<b>${Math.round(G.dmgDealt||0).toLocaleString()}</b></div><div>획득 골드<b>${G.goldEarned}</b></div><div>AI 최종 유닛<b>${aiS.units.length}기</b></div><div>최고 기록<b>${loadRecords().best}</b></div><div>획득 젬<b>+${gemsEarned} 💎</b></div><div>보유 젬<b>${META.gems}</b></div>`;
   $('over-record').textContent = (G.wave > prevBest && G.wave > 0) ? '🏆 신기록 달성!' : '';
   $('over').style.display='flex'; updateHUD();
 }
@@ -1049,6 +1098,7 @@ let selPers = 'random';
 $('btn-start').onclick = ()=>{
   AudioMan.resume();
   clearRun();
+  applyMetaToRun(META.upg);
   G.bestAtStart = loadRecords().best || 0;
   G.persKey = selPers==='random' ? pick(['balanced','attacker','saver','merger','support','adaptive']) : selPers;
   $('ai-name').textContent = PERSONALITIES[G.persKey].name;
@@ -1131,11 +1181,12 @@ function tick(forceDt){
     else{
       G.bestAtStart = loadRecords().best || 0;
       G.persKey = Q.get('pers') || 'balanced';
+      applyMetaToRun(META.upg);
       $('ai-name').textContent = PERSONALITIES[G.persKey].name;
       $('start').style.display='none'; G.phase='play'; AI.alive=true;
     }
   } else {
-    showRecords(); $('start').style.display='flex';
+    showRecords(); renderMetaShop(); $('start').style.display='flex';
     const saved = loadRun();
     if(saved){
       const rb = $('btn-resume');
@@ -1144,7 +1195,7 @@ function tick(forceDt){
       rb.onclick = ()=>{ AudioMan.resume(); AudioMan.play('click',0.5); restoreRun(saved); };
     }
   }
-  window.__game = { G, startWave, saveRun, loadRun, clearRun, restoreRun, doSummon, doGamble, doMerge, spawnUnit, moveUnit, UNITS, tilePos, trackTheta, trackPoint, camera, THREE, tick, enemyZone, unitZones, sectorFull, dmgMul, zoneCovered, dangerZoneSet, aiPriorityZones, togglePing, updateZoneStrip, get prep(){ return { pending: prepPending, t: prepT, boss: prepBoss }; } };
+  window.__game = { G, startWave, saveRun, loadRun, clearRun, restoreRun, META, loadMeta, saveMeta, applyMetaToRun, renderMetaShop, doSummon, doGamble, doMerge, spawnUnit, moveUnit, UNITS, tilePos, trackTheta, trackPoint, camera, THREE, tick, enemyZone, unitZones, sectorFull, dmgMul, zoneCovered, dangerZoneSet, aiPriorityZones, togglePing, updateZoneStrip, get prep(){ return { pending: prepPending, t: prepT, boss: prepBoss }; } };
   function loop(){ requestAnimationFrame(loop); tick(); }
   setInterval(()=>{ if(performance.now()-lastTickAt > 200) tick(); }, 200);
   loop();
