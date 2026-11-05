@@ -563,7 +563,7 @@ function doGamble(side){
 }
 function findTriple(side){
   const byId = {};
-  for(const u of G.sides[side].units){ if(u.def.tier>=5) continue; (byId[u.def.id]=byId[u.def.id]||[]).push(u); }
+  for(const u of G.sides[side].units){ if(u.def.tier>=6) continue; (byId[u.def.id]=byId[u.def.id]||[]).push(u); }
   for(const id in byId) if(byId[id].length>=3) return byId[id].slice(0,3);
   return null;
 }
@@ -607,7 +607,7 @@ function moveUnit(side, fromTile, toTile){
 let waveSeed = 1, spawnQueue = [], spawnT = 0, waveActive = false;
 let prepPending = false, prepT = 0; // 웨이브 사이 자동 정비(초)
 let prepBoss = false, bossWarned = false; // 보스 웨이브 예고
-function spawnEnemy(spec, waveN, isBoss=false){
+function spawnEnemy(spec, waveN, isBoss=false, tier=0){
   const key = 'm_'+spec.m;
   const h = isBoss ? 1.6*(spec.scale||2) : (1.15 + 0.13*Math.min(4,Math.ceil(waveN/3)));
   const inst = instantiate(key, h);
@@ -617,7 +617,7 @@ function spawnEnemy(spec, waveN, isBoss=false){
   const anim = makeAnimator(inst, moveAnim);
   const maxHp = Math.round(waveSpec(waveN).hpBase * (spec.hp||1)) * (isBoss? 1 : 1);
   const radial = (rnd()-0.5)*0.9;
-  const e = { group:inst.group, inner:inst.inner, anim, spec, hp:maxHp, maxHp,
+  const e = { group:inst.group, inner:inst.inner, anim, spec, hp:maxHp, maxHp, tier,
     t:0, speed:(spec.sp||1)*(0.92+rnd()*0.16), slowT:0, slowF:1, dead:false, boss:isBoss,
     fly:!!spec.fly, radial, wiggle:rnd()*6.28, h };
   const start = trackPoint(trackTheta(0), radial);
@@ -639,9 +639,9 @@ function startWave(){
   spawnQueue = [];
   if(spec.boss){
     const boss = BOSSES[Math.floor(wrnd()*BOSSES.length)];
-    spawnQueue.push({ boss:true, spec:boss });
+    spawnQueue.push({ boss:true, spec:boss, t:0 });
     const escorts = 4 + Math.floor(G.wave/5);
-    for(let i=0;i<escorts;i++){ const t2 = Math.min(4,spec.tierAvail); spawnQueue.push({ boss:false, spec:MONSTERS[t2][Math.floor(wrnd()*MONSTERS[t2].length)] }); }
+    for(let i=0;i<escorts;i++){ const t2 = Math.min(4,spec.tierAvail); spawnQueue.push({ boss:false, spec:MONSTERS[t2][Math.floor(wrnd()*MONSTERS[t2].length)], t:t2 }); }
     $('boss-banner').textContent = '⚠ 보스 출현 ⚠';
     $('boss-banner').style.display='block'; setTimeout(()=>$('boss-banner').style.display='none', 3500);
     AudioMan.play('boss', 0.9);
@@ -649,7 +649,7 @@ function startWave(){
   } else {
     for(let i=0;i<spec.count;i++){
       const t = 1 + Math.floor(wrnd()*spec.tierAvail);
-      spawnQueue.push({ boss:false, spec:MONSTERS[t][Math.floor(wrnd()*MONSTERS[t].length)] });
+      spawnQueue.push({ boss:false, spec:MONSTERS[t][Math.floor(wrnd()*MONSTERS[t].length)], t });
     }
     log(`웨이브 ${G.wave} 시작!`, 'sys');
   }
@@ -689,7 +689,7 @@ function damageEnemy(e, dmg, creditSide, crit=false, slow=null){
   }
 }
 function leak(e){
-  G.leakLog.push({ w:G.wave, z:enemyZone(e), boss:!!e.boss, blocked: !e.boss && G.leakShield>0 });
+  G.leakLog.push({ w:G.wave, z:enemyZone(e), boss:!!e.boss, t:e.tier||0, blocked: !e.boss && G.leakShield>0 });
   if(!e.boss && G.leakShield>0){
     G.leakShield--;
     scene.remove(e.group);
@@ -1241,7 +1241,7 @@ function tick(forceDt){
       }
       if(prepT<=0){ prepPending=false; prepT=0; startWave(); }
     }
-    if(spawnQueue.length){ spawnT -= dt; if(spawnT<=0){ const s=spawnQueue.shift(); spawnEnemy(s.spec, G.wave, s.boss); spawnT = s.boss?1.2:0.30; } }
+    if(spawnQueue.length){ spawnT -= dt; if(spawnT<=0){ const s=spawnQueue.shift(); spawnEnemy(s.spec, G.wave, s.boss, s.t||0); spawnT = s.boss?1.2:0.30; } }
     updateEnemies(dt); updateUnits(dt); updateProjectiles(dt);
     aiAccum += dt; if(aiAccum>=1.0){ aiAccum=0; aiTick(); }
     if(AUTO) autoTick(dt);
