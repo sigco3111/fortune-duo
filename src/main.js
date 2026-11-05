@@ -4,7 +4,7 @@ import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import * as SkeletonUtils from '../vendor/SkeletonUtils.js';
 import { TIER_NAMES, TIER_COLORS, UNITS, UNITS_BY_TIER, ATTACK_ANIMS, GAMBLE_TABLE,
          MONSTERS, BOSSES, waveSpec, PERSONALITIES, AI_LINES,
-         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r33';
+         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r34';
 
 const Q = new URLSearchParams(location.search);
 const AUTO = Q.get('auto') === '1';
@@ -729,7 +729,7 @@ function startWave(){
 }
 const LOOP_TIME_BASE = 40; // 속도 1 기준 한 바퀴 초
 // ---------- 유닛 성장 (정예 XP) ----------
-const LV_XP = [0,0,5,12,22,35]; // 레벨 i 도달에 필요한 처치 수 (최대 Lv5, +8%/레벨)
+const LV_XP = [0,0,5,12,22,25]; // 레벨 i 도달에 필요한 처치 수 (최대 Lv5, +8%/레벨)
 const T6_OF = { assassin:'slayer', wizard:'archmage' };
 function unitLevel(kills){ let lv=1; for(let i=2;i<LV_XP.length;i++){ if(kills>=LV_XP[i]) lv=i; } return lv; }
 function checkLevelUp(u){
