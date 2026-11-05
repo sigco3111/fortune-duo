@@ -429,7 +429,7 @@ function applyMetaToRun(upg){
   G.freeGamble = G.metaSpec==='fortune' ? { '-1':true, '1':true } : null;
 }
 
-const G = { phase:'boot', wave:0, lives:START_LIVES, metaUpg:zeroUpg(), metaSpec:null, leakShield:0, freeGamble:null, bossKills:0, runId:null, paused:false, speed:1, sides:{}, enemies:[], projectiles:[], kills:0, goldEarned:0, persKey:'balanced', pings:new Set(), pingSrc:new Map() };
+const G = { phase:'boot', wave:0, lives:START_LIVES, metaUpg:zeroUpg(), metaSpec:null, leakShield:0, freeGamble:null, bossKills:0, runId:null, leakLog:[], paused:false, speed:1, sides:{}, enemies:[], projectiles:[], kills:0, goldEarned:0, persKey:'balanced', pings:new Set(), pingSrc:new Map() };
 function newSide(side){ return { side, gold:START_GOLD, carry:0, summons:0, units:[] }; }
 G.sides[-1]=newSide(-1); G.sides[1]=newSide(1);
 const summonCost = s => SUMMON_BASE + G.sides[s].summons * SUMMON_STEP;
@@ -689,6 +689,7 @@ function damageEnemy(e, dmg, creditSide, crit=false, slow=null){
   }
 }
 function leak(e){
+  G.leakLog.push({ w:G.wave, z:enemyZone(e), boss:!!e.boss, blocked: !e.boss && G.leakShield>0 });
   if(!e.boss && G.leakShield>0){
     G.leakShield--;
     scene.remove(e.group);
@@ -928,6 +929,15 @@ function updateHUD(){
   }
   else $('wave-banner').textContent = `웨이브 ${G.wave}${waveSpec(G.wave).boss?' — 보스!':''} · 남은 적 ${G.enemies.length + spawnQueue.length}`;
   $('ai-state').textContent = `골드 ${Math.floor(G.sides[1].gold)} · 유닛 ${G.sides[1].units.length}`;
+  const chip = $('spec-chip');
+  if(chip){
+    if(G.phase==='play' && G.metaSpec && SPEC_DEFS[G.metaSpec]){
+      let t = '⭐ '+SPEC_DEFS[G.metaSpec].name;
+      if(G.metaSpec==='guardian') t += ` · 보호 ${G.leakShield}`;
+      if(G.metaSpec==='fortune' && G.freeGamble){ const n=(G.freeGamble['-1']?1:0)+(G.freeGamble['1']?1:0); if(n>0) t += ` · 무료 소환 ${n}`; }
+      chip.textContent = t; chip.style.display='';
+    } else chip.style.display='none';
+  }
   $('btn-summon').disabled = G.sides[-1].gold < summonCost(-1) || !freeTiles(-1).length || G.phase!=='play';
   if($('fp') && $('fp').style.display==='block') fpRender();
   $('btn-gamble').disabled = G.sides[-1].gold < GAMBLE_COST || !freeTiles(-1).length || G.phase!=='play';
@@ -1046,7 +1056,14 @@ function gameOver(){
   const aiS = G.sides[1];
   if(AI.alive) aiSay('end');
   $('over-stats').innerHTML = `<div>도달 웨이브<b>${G.wave}</b></div><div>처치 수<b>${G.kills}</b></div><div>총 피해량<b>${Math.round(G.dmgDealt||0).toLocaleString()}</b></div><div>획득 골드<b>${G.goldEarned}</b></div><div>AI 최종 유닛<b>${aiS.units.length}기</b></div><div>최고 기록<b>${loadRecords().best}</b></div><div>획득 젬<b>+${gemsEarned} 💎</b></div><div>보유 젬<b>${META.gems}</b></div>`;
-  $('over-record').textContent = (G.wave > prevBest && G.wave > 0) ? '🏆 신기록 달성!' : '';
+  if(G.leakLog.length){
+    const byZ = {};
+    for(const l of G.leakLog){ const nm = (ZONE_TRAVEL.find(([zz])=>zz===l.z)||[])[1] || ('구역'+(l.z+1)); byZ[nm] = (byZ[nm]||0)+1; }
+    const top = Object.entries(byZ).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([n,c])=>`${n} ×${c}`).join(', ');
+    const blockedN = G.leakLog.filter(l=>l.blocked).length;
+    $('over-record').innerHTML = ((G.wave > prevBest && G.wave > 0) ? '🏆 신기록 달성!<br>' : '') + `침투 분석: ${top}${blockedN?` (수호 차단 ${blockedN}회)`:''}`;
+  }
+  else $('over-record').textContent = (G.wave > prevBest && G.wave > 0) ? '🏆 신기록 달성!' : '';
   $('over').style.display='flex'; updateHUD();
 }
 
