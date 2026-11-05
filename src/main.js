@@ -4,7 +4,7 @@ import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import * as SkeletonUtils from '../vendor/SkeletonUtils.js';
 import { TIER_NAMES, TIER_COLORS, UNITS, UNITS_BY_TIER, ATTACK_ANIMS, GAMBLE_TABLE,
          MONSTERS, BOSSES, waveSpec, PERSONALITIES, AI_LINES,
-         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r31';
+         SUMMON_BASE, SUMMON_STEP, GAMBLE_COST, START_GOLD, START_LIVES, CHALLENGES } from './data.js?v=r31b';
 
 const Q = new URLSearchParams(location.search);
 const AUTO = Q.get('auto') === '1';
@@ -1007,10 +1007,13 @@ function aiTick(){
     return;
   }
   const saverBlocked = P.saver && S.gold < (P.gambleGold||0) && S.units.length >= P.minUnits;
-  if(spawnOk && S.units.length < P.minUnits && S.gold >= summonCost(1) && freeTiles(1).length && !saverBlocked){
+  // t1이 근접뿐이면 전열 여유가 있어야 소환 가능 — 불가능한 소환 시도로 틱을 소모하지 않음
+  const freeNow = freeTiles(1);
+  const canSummon = freeNow.some(i=>i<TILE_SECTORS) || UNITS_BY_TIER[1].some(d=>d.kind!=='melee');
+  if(spawnOk && canSummon && S.units.length < P.minUnits && S.gold >= summonCost(1) && !saverBlocked){
     const d = doSummon(1); if(d) aiSay('summon'); return;
   }
-  if(spawnOk && S.gold > summonCost(1)*4 && freeTiles(1).length && !P.saver){ doSummon(1); return; }
+  if(spawnOk && canSummon && S.gold > summonCost(1)*4 && !P.saver){ doSummon(1); return; }
   if(P.repos || G.lives<=12){ AI.reposT++; if(AI.reposT>=(P.repos?8:4)){ AI.reposT=0; aiRepos(); } }
 }
 
