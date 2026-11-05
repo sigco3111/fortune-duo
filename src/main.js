@@ -465,7 +465,7 @@ function spawnUnit(side, unitDef, tileIdx){
   scene.add(inst.group);
   const idle = unitDef.pack==='kay' ? ['Idle'] : ['Idle_Weapon','Idle'];
   const anim = makeAnimator(inst, idle);
-  const u = { uid:++unitSeq, side, def:unitDef, tile:tileIdx, group:inst.group, inner:inst.inner, anim, cool: 0.3+rnd()*0.5, row:p.row, sector:p.sector, zone:zoneOfTile(side, p.sector) };
+  const u = { uid:++unitSeq, side, def:unitDef, tile:tileIdx, group:inst.group, inner:inst.inner, anim, cool: 0.3+rnd()*0.5, row:p.row, sector:p.sector, zone:zoneOfTile(side, p.sector), lv:1, kills:0 };
   const aura = new THREE.Mesh(new THREE.RingGeometry(0.55,0.78,24), new THREE.MeshBasicMaterial({ color:TIER_COLORS[unitDef.tier-1], transparent:true, opacity:0.9, side:THREE.DoubleSide, depthWrite:false }));
   aura.rotation.x=-Math.PI/2; aura.position.y=0.02; inst.group.add(aura); u.aura=aura;
   S.units.push(u);
@@ -658,7 +658,35 @@ function startWave(){
   updateHUD();
 }
 const LOOP_TIME_BASE = 40; // 속도 1 기준 한 바퀴 초
-function damageEnemy(e, dmg, creditSide, crit=false, slow=null){
+// ---------- 유닛 성장 (정예 XP) ----------
+const LV_XP = [0,0,5,12,22,35]; // 레벨 i 도달에 필요한 처치 수 (최대 Lv5, +8%/레벨)
+const T6_OF = { assassin:'slayer', wizard:'archmage' };
+function unitLevel(kills){ let lv=1; for(let i=2;i<LV_XP.length;i++){ if(kills>=LV_XP[i]) lv=i; } return lv; }
+function checkLevelUp(u){
+  const nl = unitLevel(u.kills||0);
+  if(nl <= (u.lv||1)) return;
+  u.lv = nl;
+  const p = u.group.position;
+  burst(p.x, 1.0, p.z, 0x9fd4ff, 2.2);
+  dmgNum(p.x, 2.6, p.z, 'Lv.'+nl+'!', '#9fd4ff', true);
+  AudioMan.play('merge', u.side<0?0.5:0.25);
+  if(u.side<0) log(`${u.def.name}이(가) Lv.${nl}로 성장 (공격 +${(nl-1)*8}%)`, 'sys');
+  if(u.def.tier===5 && nl>=5) transcend(u);
+  updateZoneStrip();
+}
+function transcend(u){
+  const nid = T6_OF[u.def.id]; if(!nid) return;
+  const nd = UNITS.find(d=>d.id===nid); if(!nd || !MODELS['u_'+nd.id]) return;
+  u.def = nd; u.lv = 1; u.kills = 0;
+  if(u.aura){ u.aura.material.color.set(TIER_COLORS[5]); u.aura.scale.setScalar(1.18); }
+  const p = u.group.position;
+  burst(p.x, 1.4, p.z, 0xf8f4ff, 4.0); ring(p.x, p.z, 0xf8f4ff);
+  dmgNum(p.x, 3.0, p.z, '초월 각성!', '#f8f4ff', true);
+  AudioMan.play('gamble_win', 0.9);
+  log(`✨ ${nd.name}으로 초월 각성! (최고 레벨 전설 유닛)`, 'sys');
+  updateHUD(); updateZoneStrip();
+}
+function damageEnemy(e, dmg, creditSide, crit=false, slow=null, killer=null){
   if(e.dead) return;
   e.hp -= dmg;
   G.dbg.hits++;
@@ -680,6 +708,7 @@ function damageEnemy(e, dmg, creditSide, crit=false, slow=null){
     const gold = Math.floor(S.carry); S.carry -= gold;
     if(e.boss) G.bossKills = (G.bossKills||0)+1;
     S.gold += gold; G.goldEarned += gold; G.kills++;
+    if(killer && !killer.dead){ killer.kills = (killer.kills||0)+1; checkLevelUp(killer); }
     G.dbg.dmgShown++;
     dmgNum(e.group.position.x, 1.3, e.group.position.z, `+${gold}G`, '#ffd766');
     AudioMan.play(e.boss?'gamble_win':'gold', e.boss?0.9:0.32, 1, e.boss?0:120);
@@ -749,21 +778,22 @@ function fireProjectile(u, target){
   else { const col = kind==='holy'?0xffe9a0 : kind==='orbBig'?0xc59bff : 0x7fd4ff;
     mesh = new THREE.Mesh(new THREE.SphereGeometry(kind==='orbBig'?0.24:0.15, 8, 8), new THREE.MeshBasicMaterial({ color:col, blending:THREE.AdditiveBlending, transparent:true, depthWrite:false })); }
   mesh.position.copy(from); scene.add(mesh);
-  G.projectiles.push({ mesh, target, from, t:0, dur: Math.max(0.12, from.distanceTo(target.group.position)/15), def:u.def, side:u.side, mult:dmgMul(u, target) });
+  G.projectiles.push({ mesh, target, from, t:0, dur: Math.max(0.12, from.distanceTo(target.group.position)/15), def:u.def, side:u.side, mult:dmgMul(u, target), unit:u });
   AudioMan.play(kind==='arrow'?'shoot':'magic', 0.28, 1, 90);
 }
 // 열 보정: 후열 -15%, 전열은 담당 구역 안 적에게 +25%
 function dmgMul(u, e){
   let m = 1 + 0.03*(G.metaUpg?.dmg||0);
+  m *= 1 + 0.08*((u.lv||1)-1);
   if(u.merged && G.metaSpec==='breakthrough') m *= 1.10;
   if(u.row === 2) m *= 0.85;
   else if(u.row === 0 && enemyZone(e) === u.zone) m *= 1.25;
   return m;
 }
-function hitWithDef(target, def, side, mult=1){
+function hitWithDef(target, def, side, mult=1, srcUnit=null){
   let dmg = def.dmg * mult; let crit = false;
   if(def.crit && rnd() < def.crit){ dmg *= def.critMul; crit = true; }
-  damageEnemy(target, Math.round(dmg), side, crit, def.slow?{ f:1-def.slow, dur:def.slowDur }:null);
+  damageEnemy(target, Math.round(dmg), side, crit, def.slow?{ f:1-def.slow, dur:def.slowDur }:null, srcUnit);
 }
 function updateProjectiles(dt){
   for(let i=G.projectiles.length-1;i>=0;i--){
@@ -774,9 +804,9 @@ function updateProjectiles(dt){
     p.mesh.position.lerpVectors(p.from, to, k);
     if(k>=1){
       scene.remove(p.mesh); G.projectiles.splice(i,1);
-      hitWithDef(p.target, p.def, p.side, p.mult);
+      hitWithDef(p.target, p.def, p.side, p.mult, p.unit);
       burstCombat(to.x, to.y, to.z, p.def.kind==='magic'?0x9fd4ff:0xffe08a, 1.8, p.target);
-      if(p.def.splash) for(const e of [...G.enemies]){ if(e!==p.target && !e.dead && e.group.position.distanceTo(to) < p.def.splash) damageEnemy(e, Math.round(p.def.dmg*0.6*p.mult), p.side); }
+      if(p.def.splash) for(const e of [...G.enemies]){ if(e!==p.target && !e.dead && e.group.position.distanceTo(to) < p.def.splash) damageEnemy(e, Math.round(p.def.dmg*0.6*p.mult), p.side, false, null, p.unit); }
     }
   }
 }
@@ -789,8 +819,8 @@ function updateUnits(dt){
       if(u.pending.t<=0){
         const tgt = u.pending.target; u.pending = null;
         if(!tgt.dead){
-          if(u.def.aoe){ for(const e of [...G.enemies]){ if(!e.dead && e.group.position.distanceTo(u.group.position) <= u.def.range) hitWithDef(e, u.def, s, dmgMul(u, e)); } ring(u.group.position.x, u.group.position.z, 0xc59bff); }
-          else hitWithDef(tgt, u.def, s, dmgMul(u, tgt));
+          if(u.def.aoe){ for(const e of [...G.enemies]){ if(!e.dead && e.group.position.distanceTo(u.group.position) <= u.def.range) hitWithDef(e, u.def, s, dmgMul(u, e), u); } ring(u.group.position.x, u.group.position.z, 0xc59bff); }
+          else hitWithDef(tgt, u.def, s, dmgMul(u, tgt), u);
           burstCombat(tgt.group.position.x, 1.0, tgt.group.position.z, 0xffe08a, 1.6, tgt);
           AudioMan.play(rnd()<0.5?'attack1':'attack2', 0.22, 1, 80);
         }
@@ -980,8 +1010,8 @@ function saveRun(){
   if(G.phase!=='play' || G.wave<=0) return;
   try{
     const s = { v:1, runId:G.runId||null, spec:G.metaSpec||null, leakShield:G.leakShield||0, freeGamble:G.freeGamble||null, wave:G.wave, lives:G.lives, kills:G.kills, dmg:Math.round(G.dmgDealt||0), goldEarned:G.goldEarned, persKey:G.persKey, speed:G.speed, meta:{ ...G.metaUpg },
-      sides:{ '-1':{ gold:G.sides[-1].gold, carry:G.sides[-1].carry||0, summons:G.sides[-1].summons, units:G.sides[-1].units.map(u=>({id:u.def.id, tile:u.tile})) },
-              '1':{ gold:G.sides[1].gold, carry:G.sides[1].carry||0, summons:G.sides[1].summons, units:G.sides[1].units.map(u=>({id:u.def.id, tile:u.tile})) } } };
+      sides:{ '-1':{ gold:G.sides[-1].gold, carry:G.sides[-1].carry||0, summons:G.sides[-1].summons, units:G.sides[-1].units.map(u=>({id:u.def.id, tile:u.tile, lv:u.lv||1, kills:u.kills||0})) },
+              '1':{ gold:G.sides[1].gold, carry:G.sides[1].carry||0, summons:G.sides[1].summons, units:G.sides[1].units.map(u=>({id:u.def.id, tile:u.tile, lv:u.lv||1, kills:u.kills||0})) } } };
     localStorage.setItem(RUN_KEY, JSON.stringify(s));
   }catch(e){}
 }
@@ -999,6 +1029,8 @@ function loadRun(){
       if(ss.carry!=null && (typeof ss.carry!=='number' || !(ss.carry>=0) || ss.carry>1000)) return null;
       for(const su of ss.units){
         if(!su || !UNITS.some(d=>d.id===su.id) || !Number.isInteger(su.tile) || su.tile<0 || su.tile>=TILES_PER_SIDE) return null;
+        if(su.lv!=null && (!Number.isInteger(su.lv) || su.lv<1 || su.lv>5)) return null;
+        if(su.kills!=null && (!Number.isInteger(su.kills) || su.kills<0 || su.kills>100000)) return null;
       }
     }
     return s;
@@ -1024,7 +1056,7 @@ function restoreRunInner(s){
     const old = G.sides[side]; [...old.units].forEach(removeUnit);
     const ss = s.sides[String(side)] || { gold:START_GOLD, summons:0, units:[] };
     old.gold=ss.gold; old.carry = typeof ss.carry==='number' ? ss.carry : 0; old.summons=ss.summons;
-    for(const su of ss.units){ const def = UNITS.find(d=>d.id===su.id); if(def && su.tile>=0 && su.tile<TILES_PER_SIDE && !sideUnitAt(side, su.tile)) spawnUnit(side, def, su.tile); }
+    for(const su of ss.units){ const def = UNITS.find(d=>d.id===su.id); if(def && su.tile>=0 && su.tile<TILES_PER_SIDE && !sideUnitAt(side, su.tile)){ const ru = spawnUnit(side, def, su.tile); if(ru){ ru.lv = Number.isInteger(su.lv)?su.lv:1; ru.kills = Number.isInteger(su.kills)?su.kills:0; if(ru.def.tier===6 && ru.aura){ ru.aura.material.color.set(TIER_COLORS[5]); ru.aura.scale.setScalar(1.18); } } } }
   }
   $('start').style.display='none'; G.phase='play'; AI.alive=true;
   const nextBoss = waveSpec(G.wave+1).boss; prepPending=true; prepT=3; prepBoss=nextBoss; bossWarned=false;
@@ -1090,7 +1122,7 @@ function onTap(ev){
     const d = u.def;
     const row = Math.floor(u.tile / TILE_SECTORS);
     const rowTxt = row===0 ? '전열 · 담당 구역 집중 +25%' : row===1 ? '중열 · 균형' : '후열 · 3구역 커버 · 사거리 +50% · 공격 -15%';
-    $('sel-info').innerHTML = `<b style="color:#${TIER_COLORS[d.tier-1].toString(16)}">[${TIER_NAMES[d.tier-1]}] ${d.name}</b> <span style="opacity:.8">(${ROW_NAMES[row]})</span><br>공격력 ${d.dmg} · 사거리 ${d.range} · 속도 ${d.interval}s${d.splash?` · 범위 ${d.splash}`:''}${d.slow?' · 둔화':''}${d.crit?' · 치명타':''}${d.aoe?' · 전체공격':''}<br><span style="opacity:.7">${rowTxt}<br>다른 타일을 누르면 이동/교환${d.kind==='melee'?' · 근접은 전열 전용':''}</span>`;
+    $('sel-info').innerHTML = `<b style="color:#${TIER_COLORS[d.tier-1].toString(16)}">[${TIER_NAMES[d.tier-1]}] ${d.name}</b> <span style="opacity:.8">(${ROW_NAMES[row]})</span><br>공격력 ${d.dmg} · 사거리 ${d.range} · 속도 ${d.interval}s${d.splash?` · 범위 ${d.splash}`:''}${d.slow?' · 둔화':''}${d.crit?' · 치명타':''}${d.aoe?' · 전체공격':''}<br><span style="opacity:.7">${rowTxt}<br>정예 Lv.${u.lv||1} · 처치 ${u.kills||0}${(u.lv||1)<5?' / 다음 Lv까지 '+(LV_XP[(u.lv||1)+1]-(u.kills||0)):''}${d.tier===5?' · 최고 레벨 도달 시 초월 각성':''}<br>다른 타일을 누르면 이동/교환${d.kind==='melee'?' · 근접은 전열 전용':''}</span>`;
     $('sel-info').style.display='block';
   } else selTile=-1;
 }
@@ -1145,7 +1177,7 @@ function fpRender(){
     const z = zoneOfTile(-1, t % TILE_SECTORS);
     c.classList.toggle('occ', !!u);
     c.classList.toggle('sel', t===fpSel);
-    c.innerHTML = `<span class="fz">구역${z+1}</span>` + (u ? `<b style="color:#${TIER_COLORS[u.def.tier-1].toString(16)}">${u.def.name}</b>` : '<span style="opacity:.35">빈 칸</span>');
+    c.innerHTML = `<span class="fz">구역${z+1}</span>` + (u ? `<b style="color:#${TIER_COLORS[u.def.tier-1].toString(16)}">${u.def.name}${(u.lv||1)>1?' Lv'+u.lv:''}</b>` : '<span style="opacity:.35">빈 칸</span>');
   }
 }
 function fpTap(t){
