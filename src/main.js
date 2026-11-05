@@ -202,12 +202,6 @@ function togglePing(z){
     if(AI.alive) aiSay('ping');
   }
   updateZoneStrip();
-  const boss = G.enemies.find(e=>e.boss && !e.dead);
-  if(boss){
-    $('bossbar').style.display='flex';
-    $('bossbar-name').textContent = boss.spec.name || '보스';
-    $('bossbar-fill').style.width = Math.max(0, boss.hp/boss.maxHp*100) + '%';
-  } else $('bossbar').style.display='none';
 }
 // 배치 우선순위 구역: 플레이어·지원파·적응파는 핑 포함, 그 외 AI는 위험 구역만
 function pickPriorityZones(side){
@@ -804,6 +798,12 @@ function updateHUD(){
   else { $('btn-wave').textContent = `웨이브 ${G.wave+1} 시작`; }
   $('btn-wave').disabled = waveActive || G.phase!=='play';
   updateZoneStrip();
+  const boss = G.enemies.find(e=>e.boss && !e.dead);
+  if(boss){
+    $('bossbar').style.display='flex';
+    $('bossbar-name').textContent = boss.spec.name || '보스';
+    $('bossbar-fill').style.width = Math.max(0, boss.hp/boss.maxHp*100) + '%';
+  } else $('bossbar').style.display='none';
 }
 
 // ---------- 기록 ----------
