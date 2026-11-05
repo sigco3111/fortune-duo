@@ -902,18 +902,20 @@ function aiRepos(){
   // 위험·핑 구역 대응 이동: 안전하고 커버된 구역의 유닛 하나를 우선 구역의 빈 타일로
   const dz = (G.persKey==='support'||G.persKey==='adaptive') ? aiPriorityZones() : dangerZoneSet();
   if(!dz.size) return;
+  const dzP = new Set([...dz].filter(z => (AI.dangerT[z]||0) >= 2));
+  if(!dzP.size) return;
   const freePri = [];
   for(let i=0;i<TILES_PER_SIDE;i++){
     if(sideUnitAt(1,i)) continue;
-    if(dz.has(zoneOfTile(1, i % TILE_SECTORS))) freePri.push({ i, row: Math.floor(i/TILE_SECTORS) });
+    if(dzP.has(zoneOfTile(1, i % TILE_SECTORS))) freePri.push({ i, row: Math.floor(i/TILE_SECTORS) });
   }
   if(!freePri.length) return;
-  const cand = S.units.filter(u=> !dz.has(u.zone) && zoneCovered(u.zone));
+  const cand = S.units.filter(u=> !dzP.has(u.zone) && zoneCovered(u.zone) && !(u.reposBlockUntil && performance.now()<u.reposBlockUntil));
   for(const u of cand){
     const wantRows = u.def.kind==='melee' ? [0] : u.def.kind==='ranged' ? [2,1] : [1,2];
     for(const wr of wantRows){
       const t = freePri.find(t=>t.row===wr);
-      if(t){ moveUnit(1, u.tile, t.i); return; }
+      if(t){ u.reposBlockUntil = performance.now()+15000; moveUnit(1, u.tile, t.i); return; }
     }
   }
 }
@@ -1274,17 +1276,18 @@ function autoTick(dt){
   if(S.gold > GAMBLE_COST*2 && rnd()<0.3){ doGamble(-1); return; }
   // 위험 구역 대응: 안전한 구역의 유닛을 위험 구역 빈 타일로 (사람 플레이어 대역)
   const dz = dangerZoneSet();
-  if(dz.size){
+  const dzP = new Set([...dz].filter(z => (AI.dangerT[z]||0) >= 2));
+  if(dzP.size){
     const freePri = [];
     for(let i=0;i<TILES_PER_SIDE;i++){
       if(sideUnitAt(-1,i)) continue;
-      if(dz.has(zoneOfTile(-1, i % TILE_SECTORS))) freePri.push(i);
+      if(dzP.has(zoneOfTile(-1, i % TILE_SECTORS))) freePri.push(i);
     }
-    const cand = S.units.filter(u=> !dz.has(u.zone) && zoneCovered(u.zone));
+    const cand = S.units.filter(u=> !dzP.has(u.zone) && zoneCovered(u.zone) && !(u.reposBlockUntil && performance.now()<u.reposBlockUntil));
     for(const u of cand){
       const wantRows = u.def.kind==='melee' ? [0] : [1,2];
       const t = freePri.find(i=> wantRows.includes(Math.floor(i/TILE_SECTORS)));
-      if(t!=null){ moveUnit(-1, u.tile, t); return; }
+      if(t!=null){ u.reposBlockUntil = performance.now()+15000; moveUnit(-1, u.tile, t); return; }
     }
   }
 }
