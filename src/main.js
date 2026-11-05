@@ -560,7 +560,7 @@ function damageEnemy(e, dmg, creditSide, crit=false, slow=null){
     if(deathClip){ const a=e.anim.mixer.clipAction(deathClip); a.reset(); a.setLoop(THREE.LoopOnce,1); a.clampWhenFinished=true; a.play(); }
     burst(e.group.position.x, 0.8, e.group.position.z, e.boss?0xff8a5c:0xa0e8ff, e.boss?5:2.6);
     if(e.hpBar) e.hpBar.visible=false;
-    if(e.boss){ dmgNum(e.group.position.x, 3.4, e.group.position.z, '보스 처치!', '#ff8a5c', true); ring(e.group.position.x, e.group.position.z, 0xff8a5c); }
+    if(e.boss){ dmgNum(e.group.position.x, 3.4, e.group.position.z, '보스 처치!', '#ff8a5c', true); ring(e.group.position.x, e.group.position.z, 0xff8a5c); if(AI.alive) aiSay('bossKill'); }
     const S = G.sides[creditSide] || G.sides[-1];
     const gold = e.boss ? 50 : waveSpec(G.wave).killGold;
     S.gold += gold; G.goldEarned += gold; G.kills++;
@@ -838,6 +838,7 @@ function gameOver(){
   $('over-title').textContent = '성문이 함락됐습니다';
   $('over-sub').textContent = `${PERSONALITIES[G.persKey].name}와 함께 웨이브 ${G.wave}까지 방어`;
   const aiS = G.sides[1];
+  if(AI.alive) aiSay('end');
   $('over-stats').innerHTML = `<div>도달 웨이브<b>${G.wave}</b></div><div>처치 수<b>${G.kills}</b></div><div>총 피해량<b>${Math.round(G.dmgDealt||0).toLocaleString()}</b></div><div>획득 골드<b>${G.goldEarned}</b></div><div>AI 최종 유닛<b>${aiS.units.length}기</b></div><div>최고 기록<b>${loadRecords().best}</b></div>`;
   $('over-record').textContent = (G.wave > prevBest && G.wave > 0) ? '🏆 신기록 달성!' : '';
   $('over').style.display='flex'; updateHUD();
