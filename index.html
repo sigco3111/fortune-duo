@@ -83,6 +83,10 @@
   #vign{position:fixed;inset:0;pointer-events:none;z-index:6;box-shadow:inset 0 0 120px 40px rgba(255,40,60,0);transition:box-shadow .3s;}
   #vign.hit{box-shadow:inset 0 0 140px 60px rgba(255,40,60,.55);}
   #boss-banner{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:7;font-size:22px;font-weight:900;color:#ff5c5c;text-shadow:0 2px 12px #000;display:none;animation:bosspulse 1s infinite;}
+  #bossbar{position:fixed;top:100px;left:50%;transform:translateX(-50%);z-index:7;display:none;align-items:center;gap:8px;padding:6px 12px;font-size:13px;font-weight:800;color:#ff9d9d;white-space:nowrap;}
+  #bossbar-track{width:min(300px,44vw);height:10px;background:rgba(255,255,255,.12);border-radius:5px;overflow:hidden;}
+  #bossbar-track i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#ff5c5c,#ff9d5c);transition:width .15s;}
+  #over-record{color:var(--gold);font-weight:900;font-size:16px;margin-top:6px;min-height:20px;}
   @keyframes bosspulse{50%{transform:translateX(-50%) scale(1.07);}}
   @media (max-width:760px){
     #log{display:none;} #pers-grid{grid-template-columns:repeat(2,1fr);}
@@ -110,6 +114,7 @@
 <canvas id="c"></canvas>
 <div id="vign"></div>
 <div id="boss-banner">!! 보스 출현 !!</div>
+<div id="bossbar" class="panel"><span id="bossbar-name"></span><div id="bossbar-track"><i id="bossbar-fill"></i></div></div>
 
 <div id="hud-top">
   <div class="panel stat" id="lives-wrap"><img src="assets/icons/heart.png" alt=""><span class="heartnum" id="lives">30</span><small>공유 생명</small></div>
@@ -172,7 +177,7 @@
 
 <div class="overlay" id="over" style="display:none">
   <div class="card panel"><h1 id="over-title">게임 오버</h1><h2 id="over-sub"></h2>
-    <div id="over-stats"></div>
+    <div id="over-stats"></div><div id="over-record"></div>
     <button class="primary" id="btn-retry" style="width:100%;padding:12px;font-size:17px;">다시 하기</button>
   </div>
 </div>
